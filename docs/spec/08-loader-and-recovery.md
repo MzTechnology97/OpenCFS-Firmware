@@ -66,6 +66,13 @@ Programming details:
 
 ## 4. What this means for recovery
 
+The update path in sections 1–3 has been re-checked independently against the original
+loader instructions in [k2-cfs-rfid-tools #38](https://github.com/MzTechnology97/k2-cfs-rfid-tools/pull/38):
+F0 dispatch, 128-byte chunks, the 256-byte writer, page erase at 2 KiB boundaries,
+base `0x08003000`, sub-command 06 erasing `0x0807F800`, and no write-path comparison
+against the parameter page. The recovery below is therefore **plausible but not proven
+on a production CFS** until the installed loader is shown to match.
+
 The loader is never touched by an application update. Any application image can
 therefore be replaced over RS-485, as long as the CFS can be power-cycled and
 the host speaks this protocol within the 30 s boot window.
