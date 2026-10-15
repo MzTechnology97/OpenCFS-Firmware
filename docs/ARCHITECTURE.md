@@ -11,7 +11,8 @@ hardware assignments and protocol interoperability. Every board fact
 must distinguish original-ROM inference from actual measured hardware.
 
 Current project state: a portable **C11 static library** containing an
-unqualified-by-default software arbitration model and host tests.
+unqualified-by-default software arbitration model, a receive-only
+RS485 envelope decoder (opaque commands), and host tests.
 It deliberately contains no MCU vector table, linker script, GPIO
 writes, firmware updater or flashing facility.
 
@@ -20,7 +21,7 @@ writes, firmware updater or flashing facility.
 ```text
 CFS host / Kalico, tested synthetic RS485 input
            |
-protocol decoder + encoder  [NOT IMPLEMENTED]
+RX envelope decoder [HOST TESTED]; app semantics/TX NOT IMPLEMENTED
            |
 transaction coordinator     [NOT IMPLEMENTED]
      +-----+-----+

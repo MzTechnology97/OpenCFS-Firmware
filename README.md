@@ -13,10 +13,14 @@
   reference model** (not a physical safety system).
 - Deterministic host tests for startup rejection, fault latching, synthetic
   idle requalification and 16-thread concurrent motor/RFID claim exclusion.
+- **Receive-only bounded RS485 decoder** with original-research `F7`
+  framing and CRC-8; command bytes are opaque and never executed.
+- Offline tests for split packets, malformed lengths, CRC rejection,
+  payload-embedded synchronization bytes, timeouts and large frames.
 - Cross-compilation of the **isolated core object** for ARM Cortex-M4.
 - Source-only board evidence manifest, clean-room contribution rules and
   [staged development roadmap](docs/ROADMAP.md).
-- CI that runs host tests and verifies ARM object compilation. **No firmware
+- CI that runs host tests, sanitizer tests and verifies ARM object compilation. **No firmware
   ELF/BIN/HEX or flash automation is generated.**
 
 ## Build and test on Linux
@@ -36,6 +40,9 @@ Optional Cortex-M4 compilation (not linking):
 arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -std=c11 -Os \
   -ffreestanding -fno-builtin -Wall -Wextra -Werror -Wpedantic \
   -Iinclude -c src/safety_gate.c -o /tmp/opencfs-safety-gate.o
+arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -std=c11 -Os \
+  -ffreestanding -fno-builtin -Wall -Wextra -Werror -Wpedantic \
+  -Iinclude -c src/rs485_rx.c -o /tmp/opencfs-rs485-rx.o
 ```
 
 The synthetic `OCFS_EVIDENCE_*` flags cannot currently be produced from
@@ -45,7 +52,7 @@ A runtime GPIO driver is intentionally absent.
 
 ## Architecture and research
 
-Start with [architecture](docs/ARCHITECTURE.md), [roadmap](docs/ROADMAP.md),
+Start with [RS485 decoder evidence](docs/RS485_RX_ENVELOPE.md), [architecture](docs/ARCHITECTURE.md), [roadmap](docs/ROADMAP.md),
 [hardware evidence manifest](boards/k2-cfs-gd32f303ve/board-manifest.json),
 [reference research](docs/REFERENCES.md) and
 [contributing rules](docs/CONTRIBUTING.md).

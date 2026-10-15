@@ -16,7 +16,7 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DOPEN_CFS_BUILD_HOST_TESTS=ON
           cmake --build build --parallel 2
-      - name: Test fail-closed simulation and concurrent reservation
+      - name: Test fail-closed simulation and RS485 RX decoding
         run: ctest --test-dir build --output-on-failure
       - name: Enforce nonflashable board-manifest contract
         run: python3 tests/test_board_manifest.py
@@ -35,5 +35,24 @@ jobs:
             -ffreestanding -fno-builtin -Wall -Wextra -Werror -Wpedantic \
             -Iinclude -c src/safety_gate.c -o /tmp/opencfs-safety-gate.o
           arm-none-eabi-size /tmp/opencfs-safety-gate.o
+          arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -std=c11 -Os \
+            -ffreestanding -fno-builtin -Wall -Wextra -Werror -Wpedantic \
+            -Iinclude -c src/rs485_rx.c -o /tmp/opencfs-rs485-rx.o
+          arm-none-eabi-size /tmp/opencfs-rs485-rx.o
+          # The portable core must have no unresolved libc dependencies.
+          test -z "$(arm-none-eabi-nm -u /tmp/opencfs-rs485-rx.o)"
           test ! -f firmware.bin
           test ! -f firmware.elf
+
+  sanitized-host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: C11 AddressSanitizer and UndefinedBehaviorSanitizer build
+        run: |
+          cmake -S . -B build-sanitized \
+            -DCMAKE_BUILD_TYPE=Debug -DOPEN_CFS_BUILD_HOST_TESTS=ON \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build build-sanitized --parallel 2
+      - name: Run bounded protocol decoder and safety model under sanitizers
+        run: ctest --test-dir build-sanitized --output-on-failure
