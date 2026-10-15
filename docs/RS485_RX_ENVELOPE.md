@@ -13,12 +13,16 @@ common CFS wire-envelope described in the existing research:
   flow which OpenCFS intentionally does not implement**.
 - [RFID diagnostic envelope research](https://github.com/MzTechnology97/k2-openhost-firmware-tools/blob/main/docs/CFS_RFID_DIAGNOSTICS.md):
   independent application-side documentation of the CRC and envelope.
+- [Original CFS MCU ROM framing/CRC source audit](https://github.com/MzTechnology97/k2-cfs-rfid-tools/pull/33):
+  original SHA-pinned v3.13/v3.22 APP, physical Flash base 0x08003000,
+  authenticates OEM sync F7, length +3, CRC-8 poly07 and receiver checks.
+  Only source-derived facts are used here; no OEM bytes are copied.
 
-**Important:** The envelope is supported by stock host binary analysis
-and version-query examples. It is **not yet a complete, separately
-validated inventory of every runtime CFS MCU command, RS485 port timing,
-bus address selection or vendor protocol variant**. No specific
-runtime command is invoked, transmitted or interpreted by this library.
+**Important:** The common F7/+3/CRC-8 envelope is independently
+corroborated by the original CFS MCU ROM (addresses linked above), in
+addition to stock host analyses. This does **not** establish the complete
+runtime command set, UART/RS485 timing, bus address selection or every
+vendor protocol variant. Nothing is transmitted or executed.
 
 ## Envelope
 
@@ -40,6 +44,16 @@ MSB-first (no reflection) and final XOR **`0x00`**.
 CRC does **not** cover `F7` or the bus address, matching the
 documented host implementation. Address authenticity must be
 enforced by a later protocol layer.
+
+### Important MCU application-path length constraint
+
+The original manufacturer helper at physical PC **0x0800A95A..0x0800A960**
+checks `(declared_length - 3) < 0x62`, which yields a maximum of
+**97 payload bytes in that particular checked path**. The generic
+receive-only decoder supports the 252-byte wire envelope bound but
+**must not** be treated as proof that the original CFS application,
+loader or all command handlers accept 252-byte payloads. Exact
+command-specific length policies require separate research and tests.
 
 **Read-only examples already documented elsewhere:**
 
