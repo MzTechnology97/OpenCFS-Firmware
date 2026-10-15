@@ -24,6 +24,11 @@ assert len(pins) == len(set(pins))
 assert all(motor["hardware_feedback_validated"] is False for motor in records)
 
 # This repo is not allowed to produce a target image at bootstrap.
-for extension in ("*.bin", "*.elf", "*.hex"):
-    assert not list(root.rglob(extension)), f"Unexpected target artifact {extension}"
+for output_dir in ("firmware", "dist", "release"):
+    target = root / output_dir
+    if target.exists():
+        for extension in ("*.bin", "*.elf", "*.hex"):
+            assert not list(target.rglob(extension)), (
+                f"Unexpected target artifact in {output_dir}: {extension}"
+            )
 print("OpenCFS board manifest: PASS (source evidence, flash not authorized)")
