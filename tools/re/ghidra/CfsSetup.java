@@ -1,4 +1,4 @@
-// Pre-analysis setup for the Creality CFS application (GD32F303, linked at 0x08003000).
+// Pre-analysis setup for a CFS image (GD32F303): app at 0x08003000 or loader at 0x08000000.
 // Args: <sram_init.bin>
 // Adds SRAM (initialized from the unpacked scatter image), peripheral and
 // system-control blocks, GD32F30x peripheral labels and the vector table.
@@ -16,7 +16,6 @@ import ghidra.program.model.symbol.SourceType;
 
 public class CfsSetup extends GhidraScript {
 
-	static final long FLASH = 0x08003000L;
 
 	static final Object[][] PERIPHERALS = {
 		{ "TIMER1", 0x40000000L }, { "TIMER2", 0x40000400L }, { "TIMER3", 0x40000800L },
@@ -65,6 +64,7 @@ public class CfsSetup extends GhidraScript {
 			throw new IllegalArgumentException("usage: CfsSetup.java <sram_init.bin>");
 		}
 		Memory mem = currentProgram.getMemory();
+		final long FLASH = mem.getBlock("FLASH").getStart().getOffset();
 		File sram = new File(args[0]);
 		try (FileInputStream in = new FileInputStream(sram)) {
 			MemoryBlock b = mem.createInitializedBlock("SRAM", toAddr(0x20000000L), in,

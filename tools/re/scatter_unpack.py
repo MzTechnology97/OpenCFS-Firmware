@@ -71,10 +71,14 @@ def decompress(img: bytes, src: int, limit: int, out_len: int) -> bytes:
 
 
 def main() -> None:
+    global LINK_BASE
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("image", type=Path)
     ap.add_argument("out", type=Path)
+    ap.add_argument("--base", type=lambda v: int(v, 0), default=LINK_BASE,
+                    help="link base of the image (default 0x08003000; loader 0x08000000)")
     args = ap.parse_args()
+    LINK_BASE = args.base
 
     img = args.image.read_bytes()
     table = find_scatter_table(img)
