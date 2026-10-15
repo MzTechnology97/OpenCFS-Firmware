@@ -39,6 +39,8 @@ jobs:
             -ffreestanding -fno-builtin -Wall -Wextra -Werror -Wpedantic \
             -Iinclude -c src/rs485_rx.c -o /tmp/opencfs-rs485-rx.o
           arm-none-eabi-size /tmp/opencfs-rs485-rx.o
+          # The portable core must have no unresolved libc dependencies.
+          test -z "$(arm-none-eabi-nm -u /tmp/opencfs-rs485-rx.o)"
           test ! -f firmware.bin
           test ! -f firmware.elf
 
