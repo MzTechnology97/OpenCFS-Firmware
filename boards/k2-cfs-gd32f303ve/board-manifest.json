@@ -1,0 +1,58 @@
+{
+  "schema": "opencfs.board-evidence.v0",
+  "board": "Creality CFS candidate board (K2 family)",
+  "evidence_status": "OEM source recovered; target PCB and silicon not independently confirmed",
+  "source_reference": "https://github.com/MzTechnology97/k2-cfs-rfid-tools/pull/29",
+  "target_flash_authorized": false,
+  "target_motor_io_enabled": false,
+  "mcu": {
+    "candidate": "GD32F303VET6",
+    "physical_chip_marking_verified": false,
+    "architecture": "ARM Cortex-M4",
+    "flash_bytes_if_chip_confirmed": 524288,
+    "sram_bytes_if_chip_confirmed": 65536,
+    "application_link_base_from_original_oem_image": "0x08003000",
+    "loader_erase_page_ownership": "unknown",
+    "firmware_recovery_method": "not qualified"
+  },
+  "motor_output_gpio_from_original_rom_pin_map": [
+    {
+      "record": 0,
+      "working_label": "M1",
+      "initial_ram_address": "0x20000270",
+      "logical_pins": ["0x32", "0x33"],
+      "physical_pins": ["PD2", "PD3"],
+      "hardware_feedback_validated": false
+    },
+    {
+      "record": 1,
+      "working_label": "M2",
+      "initial_ram_address": "0x2000031C",
+      "logical_pins": ["0x30", "0x31"],
+      "physical_pins": ["PD0", "PD1"],
+      "hardware_feedback_validated": false
+    },
+    {
+      "record": 2,
+      "working_label": "M3",
+      "initial_ram_address": "0x200003C8",
+      "logical_pins": ["0x3E", "0x3F"],
+      "physical_pins": ["PD14", "PD15"],
+      "hardware_feedback_validated": false
+    },
+    {
+      "record": 3,
+      "working_label": "M4",
+      "initial_ram_address": "0x20000474",
+      "logical_pins": ["0x3C", "0x3D"],
+      "physical_pins": ["PD12", "PD13"],
+      "hardware_feedback_validated": false
+    }
+  ],
+  "rs485_protocol": "incomplete; no wire-format assumptions allowed in production",
+  "rfid_peripherals": "not yet specified for OpenCFS hardware drivers",
+  "motor_current_feedback": "unqualified; original ADC data flow is not physical idle proof",
+  "watchdog_and_task_irq_locking": "not yet implemented",
+  "startup_vectors_or_linker_script": "absent by design",
+  "approved_target_artifacts": []
+}
