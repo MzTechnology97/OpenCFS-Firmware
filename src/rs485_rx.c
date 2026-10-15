@@ -4,7 +4,6 @@
  * This source has no transport, GPIO, flash or CFS command execution.
  */
 #include "opencfs/rs485_rx.h"
-#include <string.h>
 
 uint8_t ocfs_rs485_crc8(const uint8_t *bytes, size_t size)
 {
@@ -26,7 +25,15 @@ uint8_t ocfs_rs485_crc8(const uint8_t *bytes, size_t size)
 void ocfs_rs485_rx_init(ocfs_rs485_rx_t *rx)
 {
     if (rx != NULL) {
-        memset(rx, 0, sizeof(*rx));
+        for (size_t i = 0; i < sizeof(rx->buffer); ++i) {
+            rx->buffer[i] = 0u;
+        }
+        rx->buffered = 0u;
+        rx->valid_frames = 0u;
+        rx->crc_failures = 0u;
+        rx->bad_lengths = 0u;
+        rx->dropped_bytes = 0u;
+        rx->timeout_resets = 0u;
     }
 }
 
@@ -47,8 +54,11 @@ static void resync_after_error(ocfs_rs485_rx_t *rx)
         return;
     }
     rx->dropped_bytes += (uint32_t)next;
-    memmove(rx->buffer, rx->buffer + next, rx->buffered - next);
-    rx->buffered -= next;
+    const size_t kept = rx->buffered - next;
+    for (size_t i = 0; i < kept; ++i) {
+        rx->buffer[i] = rx->buffer[i + next];
+    }
+    rx->buffered = kept;
 }
 
 static void consume_buffer(ocfs_rs485_rx_t *rx,
@@ -90,7 +100,9 @@ static void consume_buffer(ocfs_rs485_rx_t *rx,
         }
         const size_t leftover = rx->buffered - target;
         if (leftover != 0u) {
-            memmove(rx->buffer, rx->buffer + target, leftover);
+            for (size_t i = 0; i < leftover; ++i) {
+                rx->buffer[i] = rx->buffer[i + target];
+            }
         }
         rx->buffered = leftover;
     }
