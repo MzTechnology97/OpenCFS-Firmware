@@ -78,9 +78,15 @@ Every 100 ms it builds a mask from the hub *blocked* flag and the four feeder
 
 ### Reverse detooth (`feeder_reverse_detooth`)
 
-Briefly reverses a feeder whose gear stays engaged with the filament. It logs
-`detooth update [dir, speed]` / `hub reverse update`. One-shot per event; re-enabled
-after 11.1 s.
+Releases a feeder gear that stays engaged while the hub pulls:
+
+1. stop the hub, then run it for **60 ms** at full speed against its current direction;
+2. stop it, wait **200 ms**, then pulse the active slot's feeder for **30 ms** at
+   full speed in the hub's direction;
+3. restore the hub's previous direction and speed (`hub reverse update`).
+
+The active slot is the first slot whose hub sensor shows filament. Detooth runs at
+most once per **11.1 s** window.
 
 ## 5. Environment, display, indicators
 

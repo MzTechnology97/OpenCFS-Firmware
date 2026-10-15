@@ -13,6 +13,9 @@ add_library(cfs_core
     lib/preload.cpp
     lib/print_tracker.cpp
     lib/dispatcher.cpp
+    lib/auto_address.cpp
+    lib/usage.cpp
+    lib/supervisor.cpp
 )
 target_include_directories(cfs_core PUBLIC include)
 if(MSVC)

@@ -102,14 +102,14 @@ Sizes are payload bytes (frame `len` = size + 3).
 | `0x01` | – | OK, – | Keep-alive. Also refreshes the slot indicator: "has filament" mode with the first loaded slot, otherwise "empty" mode. |
 | `0x0C` | – | 1: mode | Current operating mode (database key 6): 0 = standard, other values = aging/test modes. |
 | `0x14` | – | 22: ASCII | `"153"` (application version) followed by the 19-character serial number. |
-| `0x15` | – | 16 | Six bytes `(0x10*(i+1)) \| v[i]`, then zeros: per-module status/version nibbles (meaning **unverified**). |
+| `0x15` | – | 16 | Module init results: six bytes `((i+1) << 4) \| ok[i]` for, in order, EEPROM, temperature/humidity sensor, odometer, buffer, RFID reader 0, RFID reader 1; then ten zero bytes. These are the same flags the boot log prints (`eeprom_init_flag` … `rfid_init_flag[1]`). |
 | `0x50` | 1: mode | OK / `0x03` | Same as the current mode → status 3. Otherwise store it (database key 6, persisted), reply OK, reset the MCU after 100 ms so the new mode starts. |
 | `0x51` | 1: value | none | Only via `0xEB`; stores a box index used by the front display. |
 | `0x52` | – | **cmd 0x53**, 2: `[temp, hum]` | Environment readout (same units as BOX_STATE). |
 | `0x53` | 2: `a, b` | none | Stores two display values sent by the host (**semantics unverified**). |
 | `0x55` | 1: n | 1: n+1 | Echo test (`0xFF` wraps to 0). |
 | `0x56` | – | OK | Reset the MCU after 100 ms. |
-| `0x5B` | – | 8 | MCU unique-ID derived words. |
+| `0x5B` | – | 8 | MCU unique ID (`0x1FFFF7E8`): word 0, then word 1 AND word 2 (little-endian). |
 | `0x5C` | 16 | 16 | Secure-element challenge/response (FM15L013 path, **under analysis**). |
 | `0x5D` | – | – | Enter the factory PCB test mode (state TEST). |
 
@@ -163,7 +163,7 @@ Older CFS firmware 1.1.3 returns a 4-byte variant
 | `0x11` | 2: `mask`, phase | phase status | UNLOAD: phase 0 empties the buffer, phase 1 retracts the slot to its inlet. Phase 1 also closes the slot's RFID usage accounting. |
 | `0x12` | 5: `mask`, mode, speed, dist_hi, dist_lo | status | Feed a given distance (mm, big-endian u16) at a speed (`cmd_feed_process_3`). |
 | `0x13` | 1: `mask` | status | Feed from the slot to the hub (`feed_top_to_hub`), after the pretension/precondition check. |
-| `0x30` | 1: on | OK | Drive one GPIO (RT pin 16) high for `1`, low otherwise (**which output is unverified**). |
+| `0x30` | 1: on | OK | Drive RT pin 16 (PB0) high for `1`, low otherwise (**board function unverified**). |
 
 ### RFID data
 
@@ -174,17 +174,22 @@ Older CFS firmware 1.1.3 returns a 4-byte variant
 
 ## 6. Auto-addressing (`A0`..`A3`)
 
-A separate module answers enumeration frames. Request header `0x00`. Every reply
-carries 14 bytes `[device_type=1, mode, uid[12]]`. The mode is 0 in the
-application and 1 in the loader. The UID is derived from the MCU unique ID [code][host].
+A separate module handles commands `A0`..`A3`. They arrive addressed to `0xFE`
+(unassigned), `0xFF` (broadcast) or the box's own address, with request header `0x00`.
+Every reply has header `0x00`, the request's command, and 14 bytes
+`[device_type = 1, mode, uid[12]]`. Mode is 0 in the application and 1 in the loader.
+The UID is the raw 12-byte MCU unique ID at `0x1FFFF7E8` [code][host].
 
-| Cmd | Target | Request payload | Behavior |
+| Cmd | Stock name | Request | Behavior |
 | --- | --- | --- | --- |
-| `A1` | `0xFE` | `FE FE` | Discovery. Unaddressed boxes reply after a random delay inside a configured window, so several boxes can answer one broadcast. |
-| `A0` | `0xFE` | `addr, uid[12]` | Assign `addr` to the box whose UID matches; it replies from the new address. |
-| `A2` | addr | – | Presence check of an assigned box. |
-| `A3` | – | – | Address table query, observed on hardware [hw]; payload **to be decoded**. |
-| `0x0B` | `0xFF` | `01` | Loader only: leave the loader and start the application [host]. |
+| `A1` | `get_uniid` | to `0xFE`, payload `FE FE` | Answered only while the box is **unassigned** (own address `0xFE`), when `payload[0] != 0xFF` and `payload[1] >= 0xFE`. One reply from address `0xFE`, after a random delay of 0..1000 ms so several boxes can share a discovery. |
+| `A0` | `set_addr` | to `0xFE`, payload `addr, uid[12]` | If the UID matches, the box takes `addr` and replies **three times** from the new address. A mismatch is ignored. |
+| `A2` | `online_check` | to own address | One reply from the own address. |
+| `A3` | `get_addr_table` | to own address | Same reply as `A2` in the application. |
+| `0x0B` | – | to `0xFF`, payload `01` | Loader only: leave the loader and start the application (`08-loader-and-recovery.md`) [host]. |
+
+The assigned address lives in RAM: after a reset the host enumerates again.
+Kalico keeps the UID→address mapping.
 
 ## 7. Added by K2-OpenHost (not in stock)
 

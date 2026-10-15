@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: Apache-2.0
+// Blocked-motor supervision and reverse detooth (docs/06-motors-sensors.md section 4).
+#pragma once
+
+#include <cstdint>
+
+#include "cfs/box.hpp"
+#include "cfs/hal.hpp"
+
+namespace cfs {
+
+class MotorSupervisor {
+public:
+    static constexpr uint32_t kPeriodMs = 100;
+    static constexpr uint32_t kDetoothAfterMs = 1000;
+    static constexpr uint32_t kStopAfterMs = 10000;
+    static constexpr uint32_t kReenableMs = 11100;
+    static constexpr uint32_t kHubKickMs = 60;
+    static constexpr uint32_t kFeederPulseDelayMs = 200;
+    static constexpr uint32_t kFeederPulseMs = 30;
+
+    MotorSupervisor(Hardware& hw, Box& box) : hw_(hw), box_(box) {}
+
+    // Call every kPeriodMs (stock: RT soft timer). May block for a detooth (~300 ms).
+    void tick();
+
+    bool detooth_enabled = true;  // MSH `reverse_detooth_set`, K2-OpenHost ID 6
+    // Bit 4 = hub, bits 0..3 = feeders, as captured when supervision stopped everything.
+    uint8_t stopped_mask() const { return stopped_mask_; }
+    bool overload_seen() const { return overload_; }
+    uint32_t detooth_count() const { return detooth_count_; }
+
+private:
+    uint8_t blocked_mask();
+    int active_slot();
+    void detooth(int slot);
+
+    Hardware& hw_;
+    Box& box_;
+    uint32_t blocked_ms_ = 0;
+    bool detoothing_ = false;
+    uint32_t reenable_at_ = 0;
+    uint8_t stopped_mask_ = 0;
+    bool overload_ = false;
+    uint32_t detooth_count_ = 0;
+};
+
+}  // namespace cfs

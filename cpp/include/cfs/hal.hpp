@@ -42,6 +42,9 @@ public:
     virtual void stop() = 0;
     virtual bool blocked() = 0;
     virtual bool overload() = 0;
+    // Last command (speed 0 = stopped), needed to resume after a detooth.
+    virtual Dir current_dir() = 0;
+    virtual uint8_t current_speed() = 0;
 };
 
 // Hub odometer in mm. Feeding toward the toolhead makes the value decrease.
@@ -127,6 +130,10 @@ public:
     virtual void reset_after_ms(uint32_t ms) = 0;
     // 19-character serial number, not NUL terminated.
     virtual void serial_number(char out[19]) = 0;
+    // 12-byte MCU unique ID (stock: 0x1FFFF7E8), used as the RS-485 UniID.
+    virtual void unique_id(uint8_t out[12]) = 0;
+    // Command 0x30 output (stock: RT pin 16 = PB0, function unverified).
+    virtual void set_aux_output(bool on) = 0;
 };
 
 struct Hardware {

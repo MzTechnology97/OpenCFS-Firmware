@@ -129,6 +129,10 @@ RfidScanner::Result RfidScanner::scan(int slot) {
     if (measured) {
         r.estimate = estimate_remaining(r.per_rev_mm, cfg_.spool);
         box_.rfid[slot].remaining_pct = r.estimate.area_pct;
+        if (usage_) {
+            usage_->begin(slot, r.estimate.area_pct,
+                          box_.rfid[slot].has_record ? box_.rfid[slot].record : nullptr);
+        }
     }
     return r;
 }

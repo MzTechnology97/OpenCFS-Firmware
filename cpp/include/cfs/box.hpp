@@ -73,6 +73,9 @@ public:
     uint8_t box_index = 0;       // set through 0xEB/0x51 (front display)
     uint8_t option_0f = 0;
     uint8_t display_values[2] = {};
+    // Module init results reported by 0x15, in stock order:
+    // EEPROM, temperature/humidity sensor, odometer, buffer, RFID reader 0, RFID reader 1.
+    bool module_ok[6] = {true, true, true, true, true, true};
     SlotRfid rfid[kSlotCount];
 
 private:

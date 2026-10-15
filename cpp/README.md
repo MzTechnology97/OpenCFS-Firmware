@@ -23,8 +23,11 @@ code. How it was produced, honestly stated:
 | `preload.*`, `spool.*` | insertion events, pretension, RFID revolution measurement, remaining-filament formulas |
 | `print_tracker.*` | buffer refill while printing, `0x51`/`0x52` rules, runout |
 | `dispatcher.*` | RS-485 command dispatcher |
+| `auto_address.*` | A0–A3 enumeration (random discovery back-off, triple assign reply) |
+| `usage.*` | filament usage accounting with live remaining-percent updates while printing |
+| `supervisor.*` | blocked/overload supervision, reverse detooth, 10 s safety stop |
 | `sim/` | deterministic filament-path simulator implementing the HAL |
-| `tests/` | host tests (64 checks) |
+| `tests/` | host tests (92 checks) |
 
 The library uses no heap and no exceptions. Blocking operations call
 `Clock::sleep_ms`, which the simulator turns into physics steps and an RTOS port
@@ -43,18 +46,18 @@ cmake --build build-cpp
 Implemented:
 
 - framing;
-- commands `0x01`–`0x14` and `0x50`–`0x56`;
+- auto-addressing A0–A3;
+- commands `0x01`–`0x15`, `0x30` and `0x50`–`0x5B`;
 - load/unload;
 - preload and RFID estimate;
-- print refill and runout.
+- usage accounting with **live remaining % during prints**;
+- print refill and runout;
+- motor supervision and detooth.
 
 Missing:
 
-- auto-addressing `A0`–`A3`;
-- `0x15`, `0x30`, `0x5B`–`0x5D`;
+- `0x5C` (secure-element challenge) and `0x5D` (factory test);
 - the K2-OpenHost `0x57` API;
-- RFID usage accounting;
-- motor current supervision and detooth;
 - LED/LCD;
 - the GD32F303 board port.
 

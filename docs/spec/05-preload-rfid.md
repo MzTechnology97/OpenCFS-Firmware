@@ -141,7 +141,10 @@ Per-slot record (100 bytes) kept while a slot is in use:
 | `0x04` mode 1 (print end) | Add the positive odometer delta (bounded) to `used_mm`; mode = idle. |
 | unload phase 1 | Store the position; mode = retracting; `used_mm += 15`; mark dirty. |
 | estimate done (`stock_remain_init`) | Copy the tag record; `total_mm` from `len`. For tag type 7 (tags with a used counter), reconcile: if the measured % is more than 10 points below the tag's "used" figure (and under 90 %), trust the measurement (+5) and rewrite `used_mm`. |
-| manager task | Periodically writes back dirty records (`rfid write used=%dmm,percent=%d`, `fila save:CH…`); with the secure backend this updates the tag's used counter. |
+| manager task, printing | Every **10 mm** of filament fed (`-odometer`) is added to `used_mm`. For **type 4** records (runtime estimate, also used by K2-OpenHost for third-party tags) the reported percentage is recalculated at once: `start_pct − used_mm·100/total_mm`, minimum 1. So `0x03` changes **during the print**. For **type 7** records (Creality tags with a used counter) the used length is written back to the tag through the secure element. |
+| manager task, retracting | After an unload the record returns to idle 30 s later. |
+
+**Hardware gate.** In stock 153 the usage manager runs **only on boards with the FM15L013 secure element**. The flag is at `0x20000000` and the boot log prints `hardware version: secure encryption chip fm15l013` or `No secure encryption chip`. On boards without it the CFS reports the percentage measured at insertion and never updates it while printing. That is the behavior seen on the K2-OpenHost reference printer, where Kalico estimates consumption from G-code instead. An independent firmware can enable live accounting on every board (`UsageManager::live_percent` in [`cpp/`](../../cpp/README.md)).
 
 The value reported by `0x03` for a slot:
 - `0xFF` while that slot is the one being loaded;

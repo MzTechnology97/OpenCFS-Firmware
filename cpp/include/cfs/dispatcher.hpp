@@ -4,6 +4,7 @@
 
 #include <cstdint>
 
+#include "cfs/auto_address.hpp"
 #include "cfs/box.hpp"
 #include "cfs/config.hpp"
 #include "cfs/feeder.hpp"
@@ -11,6 +12,7 @@
 #include "cfs/hal.hpp"
 #include "cfs/preload.hpp"
 #include "cfs/print_tracker.hpp"
+#include "cfs/usage.hpp"
 
 namespace cfs {
 
@@ -18,17 +20,20 @@ class Dispatcher {
 public:
     Dispatcher(Hardware& hw, Box& box, Config& cfg, Feeder& feeder, PrintTracker& print,
                uint8_t address)
-        : hw_(hw), box_(box), cfg_(cfg), feeder_(feeder), print_(print), rx_(address),
-          address_(address) {}
+        : hw_(hw), box_(box), cfg_(cfg), feeder_(feeder), print_(print), auto_(hw, address),
+          rx_(address), address_(address) {}
 
     // Reads every available byte and executes complete frames.
     void poll();
     // Executes one decoded frame (also used by tests).
     void handle(const Frame& f);
 
+    // Current RS-485 address: the initial one, or the one assigned through A0.
     uint8_t address() const { return address_; }
     // Enables forced RFID reads (0x0D sub 2/3); they run synchronously like stock.
     void set_scanner(RfidScanner* s) { scanner_ = s; }
+    // Enables usage accounting hooks (print start/end, retract).
+    void set_usage(UsageManager* u) { usage_ = u; }
 
 private:
     class LoadLink;
@@ -51,6 +56,8 @@ private:
     Feeder& feeder_;
     PrintTracker& print_;
     RfidScanner* scanner_ = nullptr;
+    UsageManager* usage_ = nullptr;
+    AutoAddress auto_;
     Receiver rx_;
     uint8_t address_;
     uint8_t reply_addr_ = 0;

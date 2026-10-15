@@ -13,6 +13,8 @@
 #include "cfs/preload.hpp"
 #include "cfs/print_tracker.hpp"
 #include "cfs/spool.hpp"
+#include "cfs/supervisor.hpp"
+#include "cfs/usage.hpp"
 #include "sim.hpp"
 
 using namespace cfs;
@@ -48,10 +50,14 @@ struct Rig {
     PrintTracker print{hw, box, cfg};
     RfidScanner scanner{hw, box, feeder, cfg};
     Preload preload{hw, box, feeder, scanner, cfg};
-    Dispatcher disp{hw, box, cfg, feeder, print, 1};
+    UsageManager usage{hw, box};
+    MotorSupervisor supervisor{hw, box};
+    Dispatcher disp;
 
-    Rig() {
+    explicit Rig(uint8_t address = 1) : disp(hw, box, cfg, feeder, print, address) {
         disp.set_scanner(&scanner);
+        disp.set_usage(&usage);
+        scanner.set_usage(&usage);
         preload.init();
     }
 
@@ -294,6 +300,119 @@ void test_runout_status() {
     CHECK(status_of(r) == to_u8(Status::Runout));
 }
 
+
+void test_auto_address() {
+    Rig rig(AutoAddress::kUnassigned);
+    // Discovery: the unassigned box answers once, after a random 0..1000 ms delay.
+    rig.w.tx.clear();
+    rig.w.inject(rig.w.now_ms(), frame(0xFE, 0xA1, {0xFE, 0xFE}, 0x00));
+    rig.disp.poll();
+    for (int i = 0; i < 1100 && rig.w.sent_frames().empty(); ++i) {
+        rig.w.sleep_ms(1);
+        rig.disp.poll();
+    }
+    auto fr = rig.w.sent_frames();
+    CHECK(fr.size() == 1);
+    if (fr.size() == 1) {
+        CHECK(fr[0][1] == 0xFE && fr[0][3] == 0x00 && fr[0][4] == 0xA1 && fr[0][2] == 17);
+        CHECK(fr[0][5] == 1 && fr[0][6] == 0 && fr[0][7] == 0x31 && fr[0][18] == 0x3C);
+    }
+    // Assignment with the matching UID: three replies from the new address.
+    std::vector<uint8_t> assign = {0x02};
+    for (int i = 0; i < 12; ++i) assign.push_back(rig.w.uid[i]);
+    rig.w.tx.clear();
+    rig.w.inject(rig.w.now_ms(), frame(0xFE, 0xA0, assign, 0x00));
+    rig.disp.poll();
+    fr = rig.w.sent_frames();
+    CHECK(fr.size() == 3 && fr[0][1] == 0x02 && rig.disp.address() == 0x02);
+    // A wrong UID changes nothing.
+    assign[5] ^= 0xFF;
+    assign[0] = 0x03;
+    rig.w.tx.clear();
+    rig.w.inject(rig.w.now_ms(), frame(0xFE, 0xA0, assign, 0x00));
+    rig.disp.poll();
+    CHECK(rig.w.tx.empty() && rig.disp.address() == 0x02);
+    // Once assigned, discovery is no longer answered; online check is.
+    rig.w.inject(rig.w.now_ms(), frame(0xFE, 0xA1, {0xFE, 0xFE}, 0x00));
+    rig.disp.poll();
+    rig.w.sleep_ms(1100);
+    rig.disp.poll();
+    CHECK(rig.w.tx.empty());
+    auto r = rig.request(0xA2, {}, 0x02);
+    CHECK(r.size() == 20 && r[1] == 0x02 && r[4] == 0xA2);
+    // Box commands now use the new address.
+    CHECK(status_of(rig.request(0x55, {1}, 0x02)) == 0);
+}
+
+void test_status_commands() {
+    Rig rig;
+    rig.box.module_ok[2] = false;  // odometer failed to init
+    auto r = rig.request(0x15, {});
+    CHECK(r.size() == 22 && r[5] == 0x11 && r[6] == 0x21 && r[7] == 0x30 && r[10] == 0x61 && r[11] == 0);
+    CHECK(status_of(rig.request(0x30, {1})) == 0 && rig.w.aux_output);
+    CHECK(status_of(rig.request(0x30, {0})) == 0 && !rig.w.aux_output);
+    r = rig.request(0x5B, {});
+    CHECK(r.size() == 14 && r[5] == 0x31 && r[9] == (0x35 & 0x39));
+}
+
+void test_usage_accounting() {
+    Rig rig;
+    rig.w.insert(0);
+    std::memcpy(rig.box.rfid[0].record, rig.w.slots[0].record, 40);
+    rig.box.rfid[0].has_record = true;
+    rig.usage.begin(0, 50, rig.box.rfid[0].record);  // 50 % of a 330 m spool
+    CHECK(rig.usage.total_mm(0) == 330000);
+    CHECK(status_of(rig.request(0x10, {0x01, 0, 0})) == 0);
+    CHECK(rig.feeder.stage1_hub_until_stop() == Status::Ok);
+    CHECK(status_of(rig.request(0x04, {0x01, 0})) == 0);
+    CHECK(rig.usage.mode(0) == UsageManager::Mode::Printing);
+    // Print with the refill loop running: 66 s at 50 mm/s ≈ 3.3 m = 1 % of the spool.
+    rig.w.consume(50.0f);
+    BufferState last = rig.w.buffer();
+    rig.w.tick_hook = [&] {
+        const BufferState now = rig.w.buffer();
+        if (now == last) return;
+        if (now == BufferState::Empty) rig.print.on_buffer_empty();
+        if (now == BufferState::Full) rig.print.on_buffer_full();
+        last = now;
+    };
+    // 80 s of simulated time at 50 mm/s = 4 m (about 1.2 % of the spool).
+    const uint32_t t_end = rig.w.now_ms() + 80000;
+    while (rig.w.now_ms() < t_end) {
+        rig.print.service();
+        rig.usage.tick();
+        rig.w.sleep_ms(10);
+    }
+    rig.w.tick_hook = nullptr;
+    CHECK(rig.usage.used_mm(0) > 3800 && rig.usage.used_mm(0) < 4300);
+    CHECK(rig.box.rfid[0].remaining_pct == 49);
+    auto rem = rig.request(0x03, {0x01});
+    CHECK(rem[5] == 49);
+    CHECK(status_of(rig.request(0x04, {0x00, 1})) == 0);
+    CHECK(rig.usage.mode(0) == UsageManager::Mode::Idle);
+}
+
+void test_supervisor_detooth_and_stop() {
+    Rig rig;
+    rig.w.insert(1);
+    CHECK(status_of(rig.request(0x10, {0x02, 0, 0})) == 0);
+    rig.w.run(Dir::Forward, 100);  // hub running
+    rig.w.hub_blocked = true;
+    for (int i = 0; i < 12; ++i) {  // 1.2 s blocked
+        rig.supervisor.tick();
+        rig.w.sleep_ms(100);
+    }
+    CHECK(rig.supervisor.detooth_count() == 1);
+    CHECK(rig.w.current_speed() == 100);  // hub command restored
+    for (int i = 0; i < 100; ++i) {  // keep blocked past 10 s
+        rig.supervisor.tick();
+        rig.w.sleep_ms(100);
+    }
+    CHECK(rig.supervisor.stopped_mask() == 0x10);
+    CHECK(rig.w.current_speed() == 0);
+    CHECK(rig.supervisor.detooth_count() == 1);  // once per 11.1 s window
+}
+
 struct Test {
     const char* name;
     void (*fn)();
@@ -315,6 +434,10 @@ int main() {
         {"print_refill", test_print_refill},
         {"refill_no_motion", test_refill_no_motion},
         {"runout_status", test_runout_status},
+        {"auto_address", test_auto_address},
+        {"status_commands", test_status_commands},
+        {"usage_accounting", test_usage_accounting},
+        {"supervisor_detooth_and_stop", test_supervisor_detooth_and_stop},
     };
     for (const Test& t : tests) {
         const int before = g_failed;

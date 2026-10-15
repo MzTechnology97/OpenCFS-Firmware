@@ -10,6 +10,7 @@
 #include "cfs/feeder.hpp"
 #include "cfs/hal.hpp"
 #include "cfs/spool.hpp"
+#include "cfs/usage.hpp"
 
 namespace cfs {
 
@@ -53,6 +54,7 @@ public:
     Result scan(int slot);
 
     static int neighbor(int slot) { return slot ^ 1; }
+    void set_usage(UsageManager* u) { usage_ = u; }
 
 private:
     bool locate(int slot);
@@ -64,6 +66,7 @@ private:
     Box& box_;
     Feeder& feeder_;
     const Config& cfg_;
+    UsageManager* usage_ = nullptr;
 };
 
 // Thread `preload`: call step() every few ms and sample() every 20 ms.

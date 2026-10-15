@@ -8,7 +8,8 @@ namespace cfs::sim {
 World::World() {
     for (int s = 0; s < kSlotCount; ++s) {
         slots[s].uid = static_cast<uint8_t>(0x10 + s);
-        std::memcpy(slots[s].record, "AB124027 6A21010010#FFFFFF0330000001000000", 40);
+        // date, supplier, batch, material, color, length (m), serial, reserve
+        std::memcpy(slots[s].record, "AB124" "0276" "A2" "101001" "0FFFFFF" "0330" "000001" "000000", 40);
     }
 }
 

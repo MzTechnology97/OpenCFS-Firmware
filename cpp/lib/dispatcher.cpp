@@ -57,6 +57,7 @@ void Dispatcher::poll() {
         }
     }
     rx_.poll_timeout(hw_.clock.now_ms());
+    auto_.poll();
 }
 
 void Dispatcher::reply_raw(uint8_t cmd, uint8_t status, const uint8_t* data, size_t len) {
@@ -213,6 +214,18 @@ void Dispatcher::cmd_load(int slot, uint8_t stage, uint8_t arg) {
 }
 
 void Dispatcher::handle(const Frame& f) {
+    if (AutoAddress::is_auto_command(f.cmd)) {
+        auto_.handle(f);
+        if (auto_.address() != address_) {
+            address_ = auto_.address();
+            rx_.set_address(address_);
+        }
+        auto_.poll();
+        return;
+    }
+    if (f.addr == AutoAddress::kUnassigned || f.addr == AutoAddress::kBroadcast) {
+        return;  // only auto-addressing uses these addresses
+    }
     silent_ = f.addr == kAddrSilentBroadcast;
     reply_addr_ = f.addr == kAddrBoxBroadcast ? kAddrBoxBroadcast : address_;
     const uint8_t* p = f.payload;
@@ -233,8 +246,11 @@ void Dispatcher::handle(const Frame& f) {
         if (!check_len(f, 2)) break;
         if (!slot_from_mask(p[0], true, slot)) { bad_mask(); break; }
         if (p[1] == 0) {
-            reply(f.cmd, slot < 0 ? Status::InvalidParam : print_.start(slot));
+            const Status st = slot < 0 ? Status::InvalidParam : print_.start(slot);
+            if (st == Status::Ok && usage_) usage_->print_start(slot);
+            reply(f.cmd, st);
         } else if (p[1] == 1) {
+            if (usage_ && box_.state() == BoxState::Print) usage_->print_end(box_.current_slot());
             print_.stop();
             reply(f.cmd, Status::Ok);
         } else {
@@ -361,6 +377,7 @@ void Dispatcher::handle(const Frame& f) {
         if (!slot_from_mask(p[0], true, slot)) { bad_mask(); break; }
         loading_ = true;
         loading_slot_ = slot;
+        if (usage_ && p[1] == 1 && slot >= 0) usage_->retract(slot);
         reply(f.cmd, feeder_.unload(slot, p[1]));
         loading_ = false;
         break;
@@ -377,6 +394,34 @@ void Dispatcher::handle(const Frame& f) {
         reply(f.cmd, Status::Ok, v, sizeof v);
         break;
     }
+    case Cmd::ModuleStatus:
+        if (check_len(f, 0)) {
+            uint8_t v[16] = {};
+            for (int i = 0; i < 6; ++i) {
+                v[i] = static_cast<uint8_t>(((i + 1) << 4) | (box_.module_ok[i] ? 1 : 0));
+            }
+            reply(f.cmd, Status::Ok, v, sizeof v);
+        }
+        break;
+    case Cmd::Output30:
+        if (check_len(f, 1)) {
+            hw_.system.set_aux_output(p[0] == 1);
+            reply(f.cmd, Status::Ok);
+        }
+        break;
+    case Cmd::UniqueId:
+        if (check_len(f, 0)) {
+            uint8_t uid[12];
+            hw_.system.unique_id(uid);
+            // Stock layout: word0, then (word1 & word2), little-endian.
+            uint8_t v[8];
+            for (int i = 0; i < 4; ++i) {
+                v[i] = uid[i];
+                v[4 + i] = static_cast<uint8_t>(uid[4 + i] & uid[8 + i]);
+            }
+            reply(f.cmd, Status::Ok, v, sizeof v);
+        }
+        break;
     case Cmd::SetMode:
         if (!check_len(f, 1)) break;
         if (p[0] == hw_.settings.mode()) {

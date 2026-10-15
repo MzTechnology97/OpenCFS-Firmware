@@ -58,13 +58,15 @@ public:
     // FeederDriver
     void run(int slot, Dir dir, uint8_t speed) override;
     void stop(int slot) override { feeder_speed_[slot] = 0; }
-    bool blocked(int) override { return false; }
+    bool blocked(int slot) override { return feeder_blocked[slot]; }
 
     // HubDriver
     void run(Dir dir, uint8_t speed) override { hub_dir_ = dir; hub_speed_ = speed; }
     void stop() override { hub_speed_ = 0; }
     bool blocked() override { return hub_blocked; }
-    bool overload() override { return false; }
+    bool overload() override { return hub_overload; }
+    Dir current_dir() override { return hub_dir_; }
+    uint8_t current_speed() override { return hub_speed_; }
 
     // Odometer
     float position_mm() override { return odom_; }
@@ -100,6 +102,8 @@ public:
     // System
     void reset_after_ms(uint32_t ms) override { reset_at = now_ + ms; }
     void serial_number(char out[19]) override { std::memcpy(out, "SIMCFS0000000000001", 19); }
+    void unique_id(uint8_t out[12]) override { std::memcpy(out, uid, 12); }
+    void set_aux_output(bool on) override { aux_output = on; }
 
     // Test controls
     void insert(int slot, float tip_mm = 50.0f);
@@ -111,6 +115,10 @@ public:
     Geometry g;
     SlotModel slots[kSlotCount];
     bool hub_blocked = false;
+    bool hub_overload = false;
+    bool feeder_blocked[kSlotCount] = {};
+    bool aux_output = false;
+    uint8_t uid[12] = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C};
     bool jam_before_hub = false;  // filament cannot reach the hub sensor
     uint8_t indicator[kSlotCount] = {};
     std::vector<uint8_t> tx;

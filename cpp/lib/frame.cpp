@@ -32,7 +32,9 @@ size_t encode(uint8_t addr, uint8_t header, uint8_t cmd, const uint8_t* payload,
 }
 
 bool Receiver::accepts(uint8_t addr) const {
-    return addr == own_ || addr == kAddrSilentBroadcast || addr == kAddrBoxBroadcast;
+    // 0xFE/0xFF carry auto-addressing frames (A0..A3), handled by AutoAddress.
+    return addr == own_ || addr == kAddrSilentBroadcast || addr == kAddrBoxBroadcast ||
+           addr == 0xFE || addr == 0xFF;
 }
 
 void Receiver::poll_timeout(uint32_t now_ms) {
