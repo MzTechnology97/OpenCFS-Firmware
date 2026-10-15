@@ -56,3 +56,31 @@ jobs:
           cmake --build build-sanitized --parallel 2
       - name: Run bounded protocol decoder and safety model under sanitizers
         run: ctest --test-dir build-sanitized --output-on-failure
+
+  cpp-spec-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build C++17 spec core, simulator and tests (sanitized)
+        run: |
+          cmake -S cpp -B build-cpp -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build build-cpp --parallel 2
+      - name: Run host simulation tests
+        run: ctest --test-dir build-cpp --output-on-failure
+      - name: Install ARM Cortex-M4 C++ compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi \
+            libstdc++-arm-none-eabi-newlib libnewlib-arm-none-eabi
+      - name: Cross compile the C++ core objects (NO ELF, BIN OR DEVICE IO)
+        run: |
+          for f in cpp/lib/*.cpp; do
+            arm-none-eabi-g++ -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 \
+              -std=c++17 -Os -fno-exceptions -fno-rtti -ffreestanding \
+              -Wall -Wextra -Werror -Wpedantic -Icpp/include \
+              -c "$f" -o "/tmp/$(basename "$f" .cpp).o"
+          done
+          arm-none-eabi-size /tmp/*.o
+          test ! -f firmware.bin
+          test ! -f firmware.elf

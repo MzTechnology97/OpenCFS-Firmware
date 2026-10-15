@@ -22,6 +22,15 @@
   [staged development roadmap](docs/ROADMAP.md).
 - CI that runs host tests, sanitizer tests and verifies ARM object compilation. **No firmware
   ELF/BIN/HEX or flash automation is generated.**
+- **Behavioral specification** of the stock CFS application `cfs0_000_153` in
+  [`docs/spec`](docs/spec/00-sources.md): RS-485 commands and statuses, load/unload
+  stages, preload/RFID and the remaining-filament estimate, motors and supervision,
+  memory map and loader image header.
+- A **C++17 reference implementation** of that specification in [`cpp/`](cpp/README.md),
+  with a filament-path simulator and host tests. It is heap-free, and like the C11
+  core it does not drive hardware.
+- Offline **analysis tools** in [`tools/re`](tools/re/README.md); none of them
+  redistribute manufacturer bytes.
 
 ## Build and test on Linux
 
