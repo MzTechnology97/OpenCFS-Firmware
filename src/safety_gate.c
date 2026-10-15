@@ -4,6 +4,7 @@
  * NOT a validated CFS physical safety interlock or flashable firmware.
  */
 #include "opencfs/safety_gate.h"
+#include <stddef.h>
 
 static bool ocfs_gate_change(ocfs_gate_t *gate,
                              unsigned from,
