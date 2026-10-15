@@ -58,7 +58,8 @@ host unit test harness and **not transmitted to physical hardware**.
 
 - Incrementally ingests arbitrary chunks and calls the supplied
   callback **only for complete CRC-valid envelopes**.
-- Applies a strict fixed 258-byte buffer bound.
+- Applies a strict fixed 258-byte buffer bound and uses no malloc, memcpy,
+  memmove or external C library symbols in the Cortex-M4 object.
 - Ignores unsynchronized bytes; rejects lengths less than three;
   resynchronizes within a corrupt buffered envelope on later `F7`.
 - Allows `F7` inside otherwise valid payloads.
