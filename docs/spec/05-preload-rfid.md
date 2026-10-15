@@ -171,3 +171,16 @@ The 40-character ASCII record (`0x02` reply, `rfid_base`):
 
 Third-party tag support (Bambu block 14, Key A derivation) is a K2-OpenHost
 addition (`0x57` API) and not part of the stock behavior.
+
+## 8. Tag writes in stock 153
+
+- **Legacy MIFARE backend** (boards without the FM15L013): the application **never
+  writes tags**. A MIFARE block-write routine exists (`card_write`, `0x0800C70E`), but
+  nothing calls it, directly or through a pointer. The console command
+  `rfid write <id> base|high` parses its arguments and does nothing.
+- **Secure backend** (boards with the FM15L013): for type 7 records the usage manager
+  writes the consumed length back through the secure element (`write used/unused`,
+  `get/dec life`). The tag data is protected by the secure element's keys, so the
+  usage manager is the only path that writes, and only on that hardware.
+- Third-party tags (Bambu, generic MIFARE) are never written. K2-OpenHost's support
+  for them is read-only by design.
