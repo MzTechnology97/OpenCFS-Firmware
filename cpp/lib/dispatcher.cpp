@@ -148,6 +148,7 @@ void Dispatcher::cmd_box_state() {
         status = box_.error();
     } else if (box_.state() == BoxState::Print) {
         status = to_u8(print_.runout_check());
+        if (status == to_u8(Status::Runout) && usage_) usage_->mark_empty(box_.current_slot());
     }
     p[3] = static_cast<uint8_t>(box_.state());
     reply_raw(to_u8(Cmd::BoxState), status, p, 6);

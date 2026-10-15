@@ -195,6 +195,7 @@ void Preload::sample() {
         } else {
             box_.post_event(s, SlotEvent::Removed);
             dequeue(s);
+            if (usage_) usage_->clear(s);
         }
     }
 }

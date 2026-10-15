@@ -26,6 +26,10 @@ public:
     void print_start(int slot);
     void print_end(int slot);
     void retract(int slot);
+    // Spool removed from the slot: forget everything about it (0x03 reports 0xFF).
+    void clear(int slot);
+    // Spool ran out while printing: report 0 % until it is removed.
+    void mark_empty(int slot);
     // Periodic task (stock: every pass of the preload thread).
     void tick();
 

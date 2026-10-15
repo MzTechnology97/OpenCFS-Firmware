@@ -27,7 +27,7 @@ code. How it was produced, honestly stated:
 | `usage.*` | filament usage accounting with live remaining-percent updates while printing |
 | `supervisor.*` | blocked/overload supervision, reverse detooth, 10 s safety stop |
 | `sim/` | deterministic filament-path simulator implementing the HAL |
-| `tests/` | host tests (92 checks) |
+| `tests/` | host tests (97 checks) |
 
 The library uses no heap and no exceptions. Blocking operations call
 `Clock::sleep_ms`, which the simulator turns into physics steps and an RTOS port
@@ -50,7 +50,7 @@ Implemented:
 - commands `0x01`–`0x15`, `0x30` and `0x50`–`0x5B`;
 - load/unload;
 - preload and RFID estimate;
-- usage accounting with **live remaining % during prints**;
+- usage accounting with **live remaining % during prints**: never writes tags, reports 0 % after a runout and `0xFF` once the spool is removed;
 - print refill and runout;
 - motor supervision and detooth.
 

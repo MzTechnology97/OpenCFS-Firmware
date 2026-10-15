@@ -58,6 +58,7 @@ struct Rig {
         disp.set_scanner(&scanner);
         disp.set_usage(&usage);
         scanner.set_usage(&usage);
+        preload.set_usage(&usage);
         preload.init();
     }
 
@@ -413,6 +414,28 @@ void test_supervisor_detooth_and_stop() {
     CHECK(rig.supervisor.detooth_count() == 1);  // once per 11.1 s window
 }
 
+
+void test_usage_reset_on_removal_and_runout() {
+    Rig rig;
+    rig.w.insert(2);
+    for (int i = 0; i < 10; ++i) { rig.preload.sample(); rig.w.sleep_ms(20); }
+    std::memcpy(rig.box.rfid[2].record, rig.w.slots[2].record, 40);
+    rig.box.rfid[2].has_record = true;
+    rig.usage.begin(2, 70, rig.box.rfid[2].record);
+    rig.box.rfid[2].remaining_pct = 70;
+    // Runout while printing reports 0 %.
+    CHECK(status_of(rig.request(0x0A, {})) == to_u8(Status::SlotEvent));  // insert event first
+    CHECK(status_of(rig.request(0x04, {0x04, 0})) == 0);
+    rig.w.remove(2);
+    CHECK(status_of(rig.request(0x0A, {})) == to_u8(Status::Runout));
+    auto rem = rig.request(0x03, {0x04});
+    CHECK(rem[7] == 0);
+    // Taking the spool out forgets it: 0xFF and no record.
+    for (int i = 0; i < 10; ++i) { rig.preload.sample(); rig.w.sleep_ms(20); }
+    rem = rig.request(0x03, {0x04});
+    CHECK(rem[7] == 0xFF && !rig.box.rfid[2].has_record && rig.usage.total_mm(2) == 0);
+}
+
 struct Test {
     const char* name;
     void (*fn)();
@@ -438,6 +461,7 @@ int main() {
         {"status_commands", test_status_commands},
         {"usage_accounting", test_usage_accounting},
         {"supervisor_detooth_and_stop", test_supervisor_detooth_and_stop},
+        {"usage_reset_on_removal_and_runout", test_usage_reset_on_removal_and_runout},
     };
     for (const Test& t : tests) {
         const int before = g_failed;

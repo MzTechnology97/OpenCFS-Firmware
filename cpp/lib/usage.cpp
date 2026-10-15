@@ -56,6 +56,18 @@ void UsageManager::retract(int slot) {
     active_ = slot;
 }
 
+void UsageManager::clear(int slot) {
+    rec_[slot] = Record{};
+    box_.rfid[slot] = SlotRfid{};
+    if (active_ == slot) active_ = -1;
+}
+
+void UsageManager::mark_empty(int slot) {
+    rec_[slot].valid = false;
+    rec_[slot].mode = Mode::Idle;
+    box_.rfid[slot].remaining_pct = 0;
+}
+
 void UsageManager::update_percent(int slot) {
     Record& r = rec_[slot];
     if (!live_percent || !r.valid || r.total_mm == 0) return;

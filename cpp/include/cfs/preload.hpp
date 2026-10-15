@@ -82,6 +82,8 @@ public:
     void step();
 
     bool inlet(int slot) const { return inlet_[slot].level(); }
+    // Removal of a spool resets its usage record.
+    void set_usage(UsageManager* u) { usage_ = u; }
 
 private:
     enum class State : uint8_t { Wait, Pretension, CheckHub, Read };
@@ -106,6 +108,7 @@ private:
     int8_t queue_[kSlotCount] = {-1, -1, -1, -1};
     State state_ = State::Wait;
     int slot_ = -1;
+    UsageManager* usage_ = nullptr;
 };
 
 }  // namespace cfs
