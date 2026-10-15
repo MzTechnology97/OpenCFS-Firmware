@@ -11,13 +11,14 @@
 namespace cfs {
 
 // Lets the stage-4 feed loop talk to the host while it owns the RS-485 thread.
+// Stock behavior: only LOAD stage 5/6 frames to the own address are understood;
+// everything else, bad CRCs included, is dropped without a reply.
 class Stage4Link {
 public:
-    enum class Poll : uint8_t { None, Progress, Stop, Malformed };
+    enum class Poll : uint8_t { None, Progress, Stop };
     virtual ~Stage4Link() = default;
     virtual Poll poll() = 0;
     virtual void reply_progress(float odometer_mm) = 0;
-    virtual void reply_malformed() = 0;
     // Reply to the stage-6 frame that ended the loop.
     virtual void reply_stop(Status s) = 0;
 };

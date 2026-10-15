@@ -97,12 +97,23 @@ Return to IDLE and reply OK.
 
 1. Reply OK at once, set state RELOAD, then hub forward [3].
 2. Loop every 20 ms for at most 1250 samples (**25 s**).
-   While the loop runs, the RS-485 thread is busy with it. It reads incoming
-   frames directly and only understands LOAD frames:
+   While the loop runs, the RS-485 thread is busy with it. A separate inline
+   reader replaces the normal receiver: it waits for `F7`, sleeps 2 ms, then reads
+   exactly **8 more bytes**, whatever length the frame declares. The 9-byte frame is
+   accepted only if all of these hold:
+   - address = own address (no `0xEA`/`0xEB` broadcast);
+   - command `0x10`;
+   - CRC-8 valid over the 6 fixed bytes;
+   - stage 5 or 6.
+
+   Accepted frames:
    - stage 5 → reply OK + odometer position (float, big-endian);
-   - stage 6 → leave the loop and go to the buffer check;
-   - any malformed frame → reply status `0x02`;
-   - anything else is discarded (the input is drained).
+   - stage 6 → leave the loop and go to the buffer check.
+
+   Everything else is **dropped without a reply**, including bad CRCs and other
+   commands such as `0x57`. The input is drained (up to 3 × 128 bytes). The stage-4
+   branch that would answer status `0x02` is not reachable from a CRC failure
+   [res k2-cfs-rfid-tools #37].
 3. Errors: fed more than 3000 mm → `0x0B`; odometer still for 500 ms → `0x0C`
    ODOMETER_STALLED; 25 s elapsed → `0x0A` FEED_TIMEOUT. The error is kept and
    reported by the next stage 5 reply.

@@ -19,7 +19,8 @@ void put_be_float(float v, uint8_t out[4]) {
 }  // namespace
 
 // Stage-4 link: while the feed loop runs it owns the receiver and only
-// understands LOAD frames (stage 5 = progress, stage 6 = stop).
+// understands LOAD frames to the own address (stage 5 = progress, stage 6 = stop).
+// Bad CRCs, broadcasts and other commands are dropped silently, as in stock.
 class Dispatcher::LoadLink : public Stage4Link {
 public:
     explicit LoadLink(Dispatcher& d) : d_(d) {}
@@ -27,11 +28,10 @@ public:
         uint8_t b;
         while (d_.hw_.link.read_byte(b)) {
             Frame f;
-            const auto r = d_.rx_.push(b, d_.hw_.clock.now_ms(), f);
-            if (r == Receiver::Result::BadCrc) return Poll::Malformed;
-            if (r != Receiver::Result::Frame || f.cmd != to_u8(Cmd::Load) || f.len != 3) continue;
-            d_.reply_addr_ = f.addr == kAddrBoxBroadcast ? kAddrBoxBroadcast : d_.address_;
-            d_.silent_ = f.addr == kAddrSilentBroadcast;
+            if (d_.rx_.push(b, d_.hw_.clock.now_ms(), f) != Receiver::Result::Frame) continue;
+            if (f.addr != d_.address_ || f.cmd != to_u8(Cmd::Load) || f.len != 3) continue;
+            d_.reply_addr_ = d_.address_;
+            d_.silent_ = false;
             if (f.payload[1] == 5) return Poll::Progress;
             if (f.payload[1] == 6) return Poll::Stop;
         }
@@ -42,7 +42,6 @@ public:
         put_be_float(odom, p);
         d_.reply(to_u8(Cmd::Load), Status::Ok, p, 4);
     }
-    void reply_malformed() override { d_.reply(to_u8(Cmd::Load), Status::BadCrc); }
     void reply_stop(Status s) override { d_.reply(to_u8(Cmd::Load), s); }
 
 private:

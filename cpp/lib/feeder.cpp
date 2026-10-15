@@ -165,9 +165,6 @@ Status Feeder::stage4_feed_to_buffer(Stage4Link& link) {
         case Stage4Link::Poll::Progress:
             link.reply_progress(now);
             break;
-        case Stage4Link::Poll::Malformed:
-            link.reply_malformed();
-            break;
         case Stage4Link::Poll::Stop: {
             const Status st = wait_buffer(BufferState::Full, cfg_.timing.buffer_full_timeout_ms)
                                   ? Status::Ok

@@ -157,6 +157,11 @@ void test_load_sequence() {
     rig.w.tx.clear();
     rig.w.inject(t, frame(1, 0x10, {0x01, 4, 0}));
     rig.w.inject(t + 500, frame(1, 0x10, {0x01, 5, 0}));
+    auto bad = frame(1, 0x10, {0x01, 5, 0});
+    bad.back() ^= 0x55;
+    rig.w.inject(t + 1000, bad);                            // bad CRC: dropped
+    rig.w.inject(t + 1500, frame(kAddrBoxBroadcast, 0x10, {0x01, 5, 0}));  // broadcast: dropped
+    rig.w.inject(t + 2000, frame(1, 0x57, {0x00}));         // other command: dropped
     rig.w.inject(t + 9000, frame(1, 0x10, {0x01, 6, 0}));
     rig.disp.poll();
     auto frames = rig.w.sent_frames();
