@@ -163,7 +163,7 @@ Older CFS firmware 1.1.3 returns a 4-byte variant
 | `0x11` | 2: `mask`, phase | phase status | UNLOAD: phase 0 empties the buffer, phase 1 retracts the slot to its inlet. Phase 1 also closes the slot's RFID usage accounting. |
 | `0x12` | 5: `mask`, mode, speed, dist_hi, dist_lo | status | Feed a given distance (mm, big-endian u16) at a speed (`cmd_feed_process_3`). |
 | `0x13` | 1: `mask` | status | Feed from the slot to the hub (`feed_top_to_hub`), after the pretension/precondition check. |
-| `0x30` | 1: on | OK | Drive RT pin 16 (PB0) high for `1`, low otherwise (**board function unverified**). |
+| `0x30` | 1: on | OK | Front LCD backlight on PB0 (RT pin 16): on for `1`, off otherwise. PB0 is configured by the LCD init. |
 
 ### RFID data
 

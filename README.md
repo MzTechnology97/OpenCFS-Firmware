@@ -25,7 +25,7 @@
 - **Behavioral specification** of the stock CFS application `cfs0_000_153` in
   [`docs/spec`](docs/spec/00-sources.md): RS-485 commands and statuses, load/unload
   stages, preload/RFID and the remaining-filament estimate, motors and supervision,
-  memory map and loader image header.
+  memory map, loader image header, loader update protocol and the GD32 peripheral/pin map for a board port.
 - A **C++17 reference implementation** of that specification in [`cpp/`](cpp/README.md),
   with a filament-path simulator and host tests. It is heap-free, and like the C11
   core it does not drive hardware.

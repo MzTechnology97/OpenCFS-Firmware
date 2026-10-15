@@ -132,7 +132,7 @@ public:
     virtual void serial_number(char out[19]) = 0;
     // 12-byte MCU unique ID (stock: 0x1FFFF7E8), used as the RS-485 UniID.
     virtual void unique_id(uint8_t out[12]) = 0;
-    // Command 0x30 output (stock: RT pin 16 = PB0, function unverified).
+    // Command 0x30: front LCD backlight (stock: PB0, RT pin 16).
     virtual void set_aux_output(bool on) = 0;
 };
 

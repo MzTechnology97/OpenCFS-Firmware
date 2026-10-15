@@ -94,9 +94,28 @@ most once per **11.1 s** window.
 | --- | --- | --- |
 | Temperature/humidity | AHT10/AHT30 (I2C on PC11/PC12) | Periodically read into the BOX_STATE bytes 0/1 (°C signed, %RH). |
 | Front display | segment LCD controller (CS/RD/WR/DAT), thread `lcd` | Shows humidity, box number (`slave_num`) and light on/off. |
-| Slot indicators | red/blue LEDs per slot (`PIN_RED1..4`, `PIN_BLUE1..4`), thread `led` | Mode per slot: idle, has filament, loading, error/runout (`led_set_mode`, `0x0B`). |
+| Slot indicators | two LEDs per slot: group A PB7/PB4/PB5/PB6, group B PC6..PC9 (`10-board-port.md` §6), thread `led` | Mode per slot set by `led_set_mode` (`0x0B`, keep-alive, events); see the table below. |
 | EEPROM | BL24Cxx (PE5/PE6) | Diagnostic records (motor-blocked dumps) and RFID usage data. |
 | Parameter database | internal flash pages (`gd32_flash`) | Key/value store with checksum; key 5 = version magic, key 6 = operating mode. Defaults are restored on checksum error. |
+
+### Indicator modes (thread `led`)
+
+| Mode | Pattern | Set by |
+| --- | --- | --- |
+| 0 | group-B chase across the slots, 500 ms | boot |
+| 1 | group-A chase; slots with filament switch to mode 2 | keep-alive with every slot empty |
+| 2 | group A on for each slot that has filament | keep-alive with filament present |
+| 3 | group-A breathing | result OK (`0x00`) |
+| 4 | group-B blink, 500 ms | `0x05`, `0x09`; hub-only sensor state |
+| 5 | group B steady | `0x17`, `0x53`; inlet-only state |
+| 6 | group-B double blink (200/200/200/1000 ms) | errors `0x0A..0x0E`, `0x13`, `0x19`, `0x1A`, `0x51`, `0x52`; both sensors clear |
+| 7 | group-B breathing | `0x08` slot empty, `0x16`, `0x50` runout |
+| 8 | group-B breathing on all slots | `0x18` all empty |
+| 9 | alternating groups on all slots, 1.2 s | (other subsystem) |
+| 10..13 | further patterns | not decoded yet |
+
+Codes `0x14` and `0x20` choose a mode from the sensors: hub-only → 4, inlet-only → 5,
+neither → 6.
 
 ## 6. Threads and timers summary
 
