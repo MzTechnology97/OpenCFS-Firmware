@@ -1,0 +1,39 @@
+name: OpenCFS clean-room CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  host-simulation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build independent C11 core
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DOPEN_CFS_BUILD_HOST_TESTS=ON
+          cmake --build build --parallel 2
+      - name: Test fail-closed simulation and concurrent reservation
+        run: ctest --test-dir build --output-on-failure
+      - name: Enforce nonflashable board-manifest contract
+        run: python3 tests/test_board_manifest.py
+
+  arm-object-compilation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM Cortex-M4 compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi
+      - name: Cross compile portable core only (NO ELF, BIN OR DEVICE IO)
+        run: |
+          arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -std=c11 -Os \
+            -ffreestanding -fno-builtin -Wall -Wextra -Werror -Wpedantic \
+            -Iinclude -c src/safety_gate.c -o /tmp/opencfs-safety-gate.o
+          arm-none-eabi-size /tmp/opencfs-safety-gate.o
+          test ! -f firmware.bin
+          test ! -f firmware.elf

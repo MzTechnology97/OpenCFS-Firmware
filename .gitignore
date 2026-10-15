@@ -1,0 +1,16 @@
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+Testing/
+*.o
+*.a
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.swp
+.DS_Store
+__pycache__/
