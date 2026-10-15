@@ -71,8 +71,10 @@ usage manager task (section 6) on every pass.
 - Two backends, chosen at boot by hardware detection:
   - **legacy**: plain MIFARE Classic. Authenticate (Key A), read the data blocks,
     and keep a 76-byte internal record per slot.
-  - **secure**: FM15L013 secure element. Authenticated tag access with a tag
-    life/used counter (`get/dec life`, `write used/unused`).
+  - **secure**: FM15L013 secure element on the CFS board, on its own bit-banged
+    I2C bus. It authenticates tags and keeps a used/life record per tag, keyed
+    by the tag UID (`get/dec life`, `write used/unused`). The record lives in the
+    secure element, not on the tag (section 8).
 
 ## 5. RFID read and margin estimation
 
@@ -141,10 +143,10 @@ Per-slot record (100 bytes) kept while a slot is in use:
 | `0x04` mode 1 (print end) | Add the positive odometer delta (bounded) to `used_mm`; mode = idle. |
 | unload phase 1 | Store the position; mode = retracting; `used_mm += 15`; mark dirty. |
 | estimate done (`stock_remain_init`) | Copy the tag record; `total_mm` from `len`. For tag type 7 (tags with a used counter), reconcile: if the measured % is more than 10 points below the tag's "used" figure (and under 90 %), trust the measurement (+5) and rewrite `used_mm`. |
-| manager task, printing | Every **10 mm** of filament fed (`-odometer`) is added to `used_mm`. For **type 4** records (runtime estimate, also used by K2-OpenHost for third-party tags) the reported percentage is recalculated at once: `start_pct − used_mm·100/total_mm`, minimum 1. So `0x03` changes **during the print**. For **type 7** records (Creality tags with a used counter) the used length is written back to the tag through the secure element. |
+| manager task, printing | Every **10 mm** of filament fed (`-odometer`) is added to `used_mm`. For **type 4** records (runtime estimate, also used by K2-OpenHost for third-party tags) the reported percentage is recalculated at once: `start_pct − used_mm·100/total_mm`, minimum 1. So `0x03` changes **during the print**. For **type 7** records (Creality tags with a used counter) the used length and the remaining percentage are sent to the **secure element**, not to the tag, and `0x03` changes only after that write succeeds (section 8). |
 | manager task, retracting | After an unload the record returns to idle 30 s later. |
 
-**Hardware gate.** In stock 153 the usage manager runs **only on boards with the FM15L013 secure element**. The flag is at `0x20000000` and the boot log prints `hardware version: secure encryption chip fm15l013` or `No secure encryption chip`. On boards without it the CFS reports the percentage measured at insertion and never updates it while printing. That is the behavior seen on the K2-OpenHost reference printer, where Kalico estimates consumption from G-code instead. An independent firmware can enable live accounting on every board (`UsageManager::live_percent` in [`cpp/`](../../cpp/README.md)).
+**Hardware gate.** In stock 153 the usage manager runs **only on boards with the FM15L013 secure element**. At boot `0x080032A8` reads two strap pins (`0x3A`, `0x3B`): both low means no secure element. It stores the result in a byte flag, and `stock_remain_gate` (`0x080032E2`) returns it. The `preload` loop calls `rfid_mgr_fila_task` only when that flag is 1 (`0x08006684`-`0x0800668C`), so on boards without the chip the **whole task is skipped**, type 4 included, although type 4 never uses the chip. The flag is at `0x20000000` and the boot log prints `hardware version: secure encryption chip fm15l013` or `No secure encryption chip`. On boards without it the CFS reports the percentage measured at insertion and never updates it while printing. That is the behavior seen on the K2-OpenHost reference printer, where Kalico estimates consumption from G-code instead. An independent firmware can enable live accounting on every board (`UsageManager::live_percent` in [`cpp/`](../../cpp/README.md)).
 
 The value reported by `0x03` for a slot:
 - `0xFF` while that slot is the one being loaded;
@@ -178,9 +180,20 @@ addition (`0x57` API) and not part of the stock behavior.
   writes tags**. A MIFARE block-write routine exists (`card_write`, `0x0800C70E`), but
   nothing calls it, directly or through a pointer. The console command
   `rfid write <id> base|high` parses its arguments and does nothing.
-- **Secure backend** (boards with the FM15L013): for type 7 records the usage manager
-  writes the consumed length back through the secure element (`write used/unused`,
-  `get/dec life`). The tag data is protected by the secure element's keys, so the
-  usage manager is the only path that writes, and only on that hardware.
+- **Secure backend** (boards with the FM15L013): the usage manager does not write
+  the tag either. For type 7 records `FUN_08015a42` sends APDUs only to the secure
+  element (`CLA 0x80`, encrypted payload with a 16-byte MAC, status `0x9000`):
+  - `0x75` selects the tag by its 7-byte UID;
+  - `0x7F` P1 `0x12` writes the used length ("write used");
+  - `0x7F` P1 `0x11` writes the remaining percentage ("write unused");
+  - `0x7B` / `0x7D` read / decrement a life counter ("get life" / "dec life"),
+    once the used length passes 110 % of the nominal length.
+
+  The transport is the secure element's bit-banged I2C bus (`0x080144A4` and
+  siblings, used only by the secure module `0x08014xxx`-`0x08015xxx`). The
+  FM176xx reader driver uses its own routines, and the usage path makes no reader
+  call. The consumption record is therefore kept by the secure element, bound to
+  the tag UID. It acts as an anti-refill counter: the tag itself is unchanged.
+- **No stock path writes an RFID tag** in normal operation, on either backend.
 - Third-party tags (Bambu, generic MIFARE) are never written. K2-OpenHost's support
   for them is read-only by design.
