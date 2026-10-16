@@ -168,10 +168,24 @@ The 40-character ASCII record (`0x02` reply, `rfid_base`):
 | supplier | 5 | 4 |
 | batch | 9 | 2 |
 | mat_id | 11 | 6 |
-| color | 17 | 7 (`#RRGGBB` style) |
-| len | 24 | 4 (meters, `0330`) |
+| color | 17 | 7: one prefix character (`0` in tags written by third-party tools), then `RRGGBB` |
+| len | 24 | 4, meters: `0330` = 1 kg, `0247` = 750 g, `0198` = 600 g, `0165` = 500 g |
 | number (serial) | 28 | 6 |
 | reserve | 34 | 6 |
+
+Writers store 48 characters (the 40 above plus 8 `0` characters of padding) in
+blocks 4..6. The reader keeps the first 40.
+
+**Encryption (MIFARE Classic 1K)** [code]: Key A = first 6 bytes of
+AES-128-ECB(K1, UID[0..3] repeated four times) (`0x080260A6`). Each of blocks
+4..6 = AES-128-ECB(K2, 16 record characters); the reader decrypts with K2
+(`0x08026136`). K1 and K2 are the same in stock 1.2.2, 1.5.0 and 1.5.3. The
+public tag writer [DnG-Crafts/K2-RFID](https://github.com/DnG-Crafts/K2-RFID)
+uses the same scheme, so tags it writes are read by the stock firmware (and by
+OpenCFS). Its two keys have the same SHA-256 fingerprints as the keys extracted
+from the firmware. On a blank tag it also writes the derived Key A into the
+sector 1 trailer (block 7). The keys are not reproduced in this specification;
+`tools/re/extract_tag_keys.py` extracts them from a firmware image you own.
 
 Third-party tag support (Bambu block 14, Key A derivation) is a K2-OpenHost
 addition (`0x57` API) and not part of the stock behavior.

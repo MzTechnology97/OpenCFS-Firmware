@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "board_io.hpp"
+#include "creality_tag_crypto.hpp"
 #include "fm17622.hpp"
 #include "cfs/hal.hpp"
 #include "cfs/param_store.hpp"
@@ -186,7 +187,7 @@ public:
     Board();
     void init();
     Hardware hardware();
-    // Creality tag keys come from the integrator (see TagCrypto); call before init.
+    // Replaces the default CrealityTagCrypto (keys from local/creality_keys.hpp).
     void set_tag_crypto(TagCrypto* crypto) { rfid_.set_crypto(crypto); }
     // 1 ms housekeeping: monitors, speed loop, odometer and LEDs.
     void tick_1ms();
@@ -215,7 +216,8 @@ private:
     Aht30 env_{aht_bus_};
     Leds leds_;
     Rs485 link_{usart_};
-    Fm17622Rfid rfid_{rfid_bus0_, rfid_bus1_, clock};
+    CrealityTagCrypto tag_crypto_;
+    Fm17622Rfid rfid_{rfid_bus0_, rfid_bus1_, clock, &tag_crypto_};
     FlashSettings settings_;
     McuSystem system_{clock};
 };

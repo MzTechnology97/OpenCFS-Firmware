@@ -7,6 +7,8 @@
 #include <functional>
 #include <vector>
 
+#include "cfs/aes128.hpp"
+#include "cfs/creality_tag.hpp"
 #include "cfs/dispatcher.hpp"
 #include "cfs/feeder.hpp"
 #include "cfs/frame.hpp"
@@ -476,6 +478,38 @@ void test_param_store() {
     CHECK(!decode(bad, r));
 }
 
+// AES-128 (FIPS-197 appendix C.1) and the Creality tag chain with dummy keys;
+// expected values computed with an independent AES library.
+void test_aes_and_creality_tag() {
+    const uint8_t key[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                             0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F};
+    const uint8_t plain[16] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                               0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+    const uint8_t cipher[16] = {0x69, 0xC4, 0xE0, 0xD8, 0x6A, 0x7B, 0x04, 0x30,
+                                0xD8, 0xCD, 0xB7, 0x80, 0x70, 0xB4, 0xC5, 0x5A};
+    uint8_t b[16];
+    std::memcpy(b, plain, 16);
+    cfs::aes128::encrypt_block(key, b);
+    CHECK(std::memcmp(b, cipher, 16) == 0);
+    cfs::aes128::decrypt_block(key, b);
+    CHECK(std::memcmp(b, plain, 16) == 0);
+
+    uint8_t kdf[16], rec_key[16];
+    for (int i = 0; i < 16; ++i) {
+        kdf[i] = static_cast<uint8_t>(15 - i);
+        rec_key[i] = static_cast<uint8_t>(0x10 + 7 * i);
+    }
+    const uint8_t uid[4] = {0x37, 0x10, 0x15, 0x73};
+    const uint8_t key_a[6] = {0x37, 0x7D, 0xCD, 0xE7, 0x92, 0x51};
+    uint8_t got[6];
+    cfs::creality::derive_key_a(kdf, uid, got);
+    CHECK(std::memcmp(got, key_a, 6) == 0);
+    uint8_t block[16] = {0x72, 0xD3, 0x2C, 0xAF, 0x83, 0x56, 0x21, 0x84,
+                         0xB6, 0x27, 0x24, 0xB9, 0x65, 0x13, 0x4F, 0x52};
+    cfs::creality::decrypt_block(rec_key, block);
+    CHECK(std::memcmp(block, "AB1240276A210100", 16) == 0);
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -496,6 +530,7 @@ int main() {
         {"supervisor_detooth_and_stop", test_supervisor_detooth_and_stop},
         {"usage_reset_on_removal_and_runout", test_usage_reset_on_removal_and_runout},
         {"param_store", test_param_store},
+        {"aes_and_creality_tag", test_aes_and_creality_tag},
     };
     for (const Test& t : tests) {
         const int before = g_failed;

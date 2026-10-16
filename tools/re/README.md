@@ -7,6 +7,7 @@ Ghidra projects, exports) must stay private.
 | Tool | Purpose |
 | --- | --- |
 | `scatter_unpack.py IMAGE OUT [--base]` | rebuild the initial SRAM (Keil scatter RW decompression); default base `0x08003000` |
+| `extract_tag_keys.py IMAGE [--out HEADER]` | extract the Creality tag keys from your own stock image into a git-ignored header for `CrealityTagCrypto`; prints only SHA-256 fingerprints |
 | `app_header.py IMAGE...` | check the loader header at `0x20C`: CRC-16 (poly `0x8005`, metadata zeroed) and length |
 | `thumbdis.py IMAGE START END` | linear Thumb disassembly with literal-pool values (needs `capstone`) |
 | `peek.py IMAGE SRAM ADDR...` | print words as u32/i32/float and follow pointers |

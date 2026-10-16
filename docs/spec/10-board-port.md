@@ -203,8 +203,12 @@ off (`0x0800D670`).
 - MIFARE Classic 1K (ATQA `04 00`, SAK `08`): Key A is derived from the 4-byte UID
   with AES-128, and blocks **4, 5, 6** (table at `0x200001F8`) are decrypted with
   a fixed AES-128 key (S-boxes at `0x0802BD89` / `0x0802BE89`). The 40-character
-  record is `dec(b4) ‖ dec(b5) ‖ dec(b6)[0..7]`. The OpenCFS driver does not ship
-  these keys: the integrator supplies them (`TagCrypto`).
+  record is `dec(b4) ‖ dec(b5) ‖ dec(b6)[0..7]`. The key table is 48 bytes right
+  before the S-box (`0x0802BD59` in 1.5.3): four 12-byte entries, word 0 of each
+  builds K1 and word 1 builds K2 (`0x08026156`). The algorithm is in
+  `05-preload-rfid.md` §7. OpenCFS does not ship the keys:
+  `tools/re/extract_tag_keys.py` writes a git-ignored `local/creality_keys.hpp`
+  from your own image, and `CrealityTagCrypto` uses it when present.
 - Other tags (e.g. NTAG with a 7-byte UID): no authentication. Read pages 4 and 8
   (16 bytes each); the record is the first 20 bytes as 40 uppercase hex
   characters.

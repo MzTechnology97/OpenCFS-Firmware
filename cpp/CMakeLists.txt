@@ -17,6 +17,8 @@ add_library(cfs_core
     lib/usage.cpp
     lib/supervisor.cpp
     lib/param_store.cpp
+    lib/aes128.cpp
+    lib/creality_tag.cpp
 )
 target_include_directories(cfs_core PUBLIC include)
 if(MSVC)

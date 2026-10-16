@@ -64,3 +64,8 @@ Subtract `0xD000` to get the real address.
   holds the public 2025 dumps cited elsewhere in this spec. The captures come from
   an earlier firmware build than 1.5.3, so every finding is cross-checked against
   the stock code.
+- [DnG-Crafts/K2-RFID](https://github.com/DnG-Crafts/K2-RFID) (read 2026-10-16, no
+  licence: used only as a source of facts, no code or data copied). The ESP32
+  writer confirms the Key A derivation, the block encryption, the 48-character
+  record layout and the weight-to-length codes. Its keys were compared with the
+  extracted ones by SHA-256 fingerprint only.

@@ -27,7 +27,8 @@ code. How it was produced, honestly stated:
 | `usage.*` | filament usage accounting with live remaining-percent updates while printing |
 | `supervisor.*` | blocked/overload supervision, reverse detooth, 10 s safety stop |
 | `param_store.*` | stock parameter page codec (CRC-16/XMODEM, keys 5 and 6, load policy) |
-| `board/k2cfs/` | GD32F303 board port: own register map, GPIO/PWM/USART/ADC/SPI/soft-I2C, and HAL drivers (GPIO feeders with the ripple stall detector, hub speed PID with blocked/overload, sensors, MT6826S with the stock framing, AHT30, LEDs, RS-485, stock-compatible flash parameter page, FM17622 read-only RFID driver with integrator-supplied tag keys). Compiled as objects only. |
+| `aes128.*`, `creality_tag.*` | AES-128 block cipher and the stock Creality tag Key A derivation / block decryption (keys are parameters) |
+| `board/k2cfs/` | GD32F303 board port: own register map, GPIO/PWM/USART/ADC/SPI/soft-I2C, and HAL drivers (GPIO feeders with the ripple stall detector, hub speed PID with blocked/overload, sensors, MT6826S with the stock framing, AHT30, LEDs, RS-485, stock-compatible flash parameter page, FM17622 read-only RFID driver, `CrealityTagCrypto` using a git-ignored `local/creality_keys.hpp` made by `tools/re/extract_tag_keys.py` from your own firmware image). Compiled as objects only. |
 | `sim/` | deterministic filament-path simulator implementing the HAL |
 | `tests/` | host tests (97 checks) |
 
@@ -61,7 +62,7 @@ Missing:
 - `0x5C` (secure-element challenge) and `0x5D` (factory test);
 - the K2-OpenHost `0x57` API;
 - LED/LCD;
-- in the board port: startup code, linker script and clock tree (no ELF/BIN by repository policy), a `TagCrypto` implementation for Creality MIFARE tags (keys are not shipped), and hardware confirmation of the feeder direction, the flash parameter writes and the RFID timings. The MT6826S framing is confirmed by the stock code and a public capture, not yet on our own board.
+- in the board port: startup code, linker script and clock tree (no ELF/BIN by repository policy), and hardware confirmation of the feeder direction, the flash parameter writes and the RFID timings. The MT6826S framing is confirmed by the stock code and a public capture, not yet on our own board.
 
 **Nothing here produces a flashable image.** The repository's release gates
 (`docs/ROADMAP.md`) apply unchanged.
