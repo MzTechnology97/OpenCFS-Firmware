@@ -108,8 +108,14 @@ flag stops the box with the outputs as they were. These are the stock behavior
 too, and they are on the list for the hardware qualification.
 
 **Image identity.** The packager writes the 12-byte version at `+0x200`, the
-CRC-16 and the length (`08-loader-and-recovery.md` §2). Which versions the
-loader's `start_app` and Creality's `mcu_util_485` accept is not analysed yet.
-On the reference printer a version taken from a non-standard file name was
-refused (`start_app NACK`), so until then the image uses the stock form
-`cfs0_000_NNN`, matching the file name `<boot>-<version>.bin`.
+CRC-16 and the length (`08-loader-and-recovery.md` §2). The loader accepts any
+12 bytes there; `start_app` refuses only an image whose CRC or length is wrong.
+The stock updater reads only the generation after the second `_`, and the
+K2-OpenHost tools require the form `cfs0_000_NNN` with a matching file name
+(`08-loader-and-recovery.md` §6.3, which also covers how `NNN` decides whether a
+stock update replaces OpenCFS).
+
+**Loader state at entry.** The loader leaves SysTick running with its interrupt
+(§5 of `08-loader-and-recovery.md`). The image unmasks interrupts only after VTOR
+points at its own table, and its SysTick handler does nothing until `BoardApp`
+exists; `Board::init()` then reprograms the tick.

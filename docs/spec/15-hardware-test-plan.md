@@ -1,0 +1,143 @@
+# First controlled hardware test plan (OpenCFS)
+
+Status: **plan only. Nothing here has been run, and no OpenCFS image has been
+flashed.** Every stage needs the owner's explicit go-ahead, and nothing below is
+ever run unattended.
+
+## Principles
+
+- **Prove the path with stock first.** The first flash through the custom-image
+  path carries Creality's own 153 image. OpenCFS is flashed only once that path
+  and the recovery have both worked twice.
+- **One new thing per stage.** Each stage adds one class of risk: boot and bus,
+  then sensors, then one actuator, then filament. Motion stays disabled in the
+  build until stage 3.
+- **Recovery is the stock update path**, and it needs nothing from the
+  application (`08-loader-and-recovery.md` §6.1): power cycle, enumeration
+  within the loader's 30 s window, stock image, `start_app`.
+- **Abort** at any surprise: stop Klipper, switch the CFS off from the T113 (MCU
+  rail) or at the mains, then recover to stock. Report before trying again.
+- **Unchanged rules:** no RFID writes, Kalico untouched, vendor keys only on the
+  owner's PC. An image built from the private tree embeds the keys and never
+  leaves that PC and the printer.
+
+## Prerequisites
+
+| # | Item | State |
+| --- | --- | --- |
+| P1 | Slot B on the T113 with the corrected container check (k2-openhost-t113-bootstrap #13, programs update from the installer helper) | merged, not installed |
+| P2 | Stock `cfs0_050_G32-cfs0_000_153.bin` on the CM5 with its SHA-256, and the box's UUID from `/tmp/.485_mcu_version` | to collect |
+| P3 | Build variants: **inert** (outputs held braked, motion commands answer BUSY, the parameter page never written) and **bench** (inert plus one bounded jog command: one motor, at most 500 ms, refused while any other output is on) | to implement |
+| P4 | Version at `+0x200`: `cfs0_000_153` or another generation (`08` §6.3: decides whether a stock update replaces OpenCFS) | owner's decision |
+| P5 | Watchdog: none, as stock, for stages 1–2; decide before stage 3 | owner's decision |
+| P6 | A recorded stock baseline (stage 0.1) to compare against | to collect |
+
+## Stage 0 — stock only
+
+**0.1 Baseline.** With stock 153 and Kalico as they are, record:
+- the mcu_update log (`fw.cur_ver`, boot version, UUID);
+- `/tmp/.485_mcu_version`;
+- Kalico's box state, slot and hub masks, buffer state, encoder count;
+- RFID records with one known Creality tag per slot;
+- the front display values;
+- one load and one unload per slot: time, and a short video showing the feeder and hub direction.
+
+Read-only except for the load and unload, which the owner runs.
+
+**0.2 Rehearse the custom path with the stock image.** With Klipper stopped
+(host evidence):
+
+```
+k2oh-mcu-fw apply --cfs --cfs-image cfs0_050_G32-cfs0_000_153.bin \
+  --cfs-sha256 <sha256> --cfs-uuid "<uuid>"
+```
+
+Pass:
+- the log shows `F0 06`, `update_request`, the data, `update_end` and `start_app` ACK;
+- `/tmp/.485_mcu_version` reports `update=ok` for the UUID;
+- Kalico finds the box and the stage 0.1 queries match.
+
+The box mode returns to standard, because `F0 06` erased the parameter page.
+
+**0.3 Rehearse recovery.** Run the normal stock CFS update (`apply --cfs` with the
+real list, or the helper's equivalent) and time it, from the power cycle to
+`start_app`.
+
+**Gate:** 0.2 and 0.3 each pass twice.
+
+## Stage 1 — OpenCFS inert image: boot and bus
+
+Build: inert variant, public tree (no vendor keys), sealed by the packager. It
+must pass `image_boot_test.py` and the K2-OpenHost container check before it
+goes to the CM5.
+
+Before you start, remove the filament from all four slots.
+
+1. Flash it through the stage 0.2 path. Pass: `start_app` ACK and `update=ok`.
+   A NACK means an invalid image: stop and recover.
+2. Start Klipper. Within 60 s Kalico must enumerate the box (`A1`, then `A0`
+   with three replies) and the stage 0.1 queries must answer without CRC or
+   length errors.
+3. Leave it 10 minutes under Kalico's normal polling. Pass: no lost box, no
+   reset, front display plausible (temperature and humidity against stock), no
+   output moves.
+4. Recover to stock (0.3) and repeat 0.1's queries.
+
+Abort: the box missing after 60 s, repeated enumeration, or any movement.
+
+## Stage 2 — sensors, read-only
+
+Same inert image, filament handled by hand. For each slot, against the stage
+0.1 baseline:
+
+| Sensor | Check |
+| --- | --- |
+| inlet and hub sensors | inserting and removing the filament changes the slot and hub masks as stock |
+| buffer full/empty | moving the buffer by hand changes the buffer state |
+| MT6826 odometer | pulling a measured length (e.g. 100 mm) gives the stock count, within 2 % |
+| RFID | the same tag gives the same Kalico record as stock |
+| EEPROM serial, unique ID, hardware straps | equal to stock |
+
+Pass: every row matches. Recover to stock at the end.
+
+## Stage 3 — one actuator at a time, no filament
+
+Bench variant. The operator stays at the box, ready to cut power.
+
+1. **Feeder direction.** Slot A, one 300 ms jog in each direction. Pass: it turns
+   as in the stock video. Then slots B–D.
+2. **Feeder current.** Jog with the gear free, then lightly held by hand. Pass:
+   the stall detector fires only when held, and the ADC voltage is in the range
+   assumed by `04-feeder.md`.
+3. **Hub.** Lowest speed, 1 s. Pass: no full-speed start (PWM polarity), FG
+   pulses counted, the brake stops it.
+4. **Fault path.** A bench command that forces a fault while one feeder runs.
+   Pass: everything brakes, the box stops answering, and a power cycle brings
+   it back through the loader.
+
+Pass: all four. Recover to stock.
+
+## Stage 4 — filament, one slot, then four
+
+Full image with motion enabled:
+
+1. Load slot A to the hub and unload it, three times. Compare times and
+   distances with the stage 0.1 baseline; pretension as stock.
+2. The same for B–D, then a slot change.
+3. A short print with a refill (runout on the active slot).
+
+Pass: no stall, no unexpected motion, times within 20 % of stock.
+
+## Stage 5 — soak
+
+Two hours idle under Kalico polling, then one longer print with two slot
+changes. Pass: no lost box, no reset, no unexpected motion.
+
+## What is recorded at every stage
+
+- the image SHA-256 and its build commit;
+- `/tmp/mcu_update.log` and `/tmp/.485_mcu_version`;
+- Kalico's log;
+- the result of each check, with what was done when anything failed.
+
+The results go into `14-verification.md`.

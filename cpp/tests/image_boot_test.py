@@ -207,6 +207,10 @@ class Board:
                 self.call(self.usart_handler)
 
     def start(self):
+        # As the loader leaves it at the jump (0x08001304..0x0800135E): NVIC cleared,
+        # but SysTick still running with its interrupt (HCLK/8, 1 ms at 120 MHz).
+        self.w32(SYST + 4, HCLK // 8 // 1000 - 1)
+        self.w32(SYST, 0x3)
         self.uc.reg_write(A.UC_ARM_REG_MSP, self.sp0)
         self.uc.reg_write(A.UC_ARM_REG_SP, self.sp0)
         self.uc.reg_write(A.UC_ARM_REG_PC, self.reset)
