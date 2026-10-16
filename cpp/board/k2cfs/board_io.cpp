@@ -77,6 +77,14 @@ void Usart::write_blocking(const uint8_t* data, size_t len) {
 }
 
 void Usart::on_irq() {
+    // An overrun raises the interrupt (RBNEIE) without RBNE and stays set until
+    // STAT0 then DATA are read: without this the interrupt would fire forever.
+    // With RBNE also set, the loop below reads DATA and clears it.
+    const uint32_t st = reg(base_ + USART_STAT0);
+    if ((st & USART_STAT0_ERRORS) && !(st & USART_STAT0_RBNE)) {
+        const uint32_t discard = reg(base_ + USART_DATA);
+        (void)discard;
+    }
     while (reg(base_ + USART_STAT0) & USART_STAT0_RBNE) {
         const uint8_t b = static_cast<uint8_t>(reg(base_ + USART_DATA));
         const uint16_t next = static_cast<uint16_t>((head_ + 1u) % sizeof rx_);

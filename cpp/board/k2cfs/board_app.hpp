@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The OpenCFS application on the K2 CFS board (docs/13-application.md). This
-// file only wires Board and cfs::App; the vector table, reset handler and main()
-// that call it belong to the image build and are not part of this repository.
+// file only wires Board and cfs::App; the vector table, reset handler and entry
+// that call it are in image/ (EXPERIMENTAL, not qualified on hardware).
 #pragma once
 
 #include <cstdint>

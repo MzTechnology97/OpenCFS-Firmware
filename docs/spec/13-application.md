@@ -66,17 +66,50 @@ a watchdog.** OpenCFS keeps that behavior. Adding FWDGT is a release decision
 for the image (feed it in `loop_once()` and in the idle hook, so long routines
 keep feeding it), and it must be qualified on hardware like any other change.
 
-## 4. Integration contract for an image (not in this repository)
+## 4. Image (EXPERIMENTAL, not qualified on hardware)
 
-An image build has to do the following, in this order:
+`cpp/board/k2cfs/image/` turns the board port into a linked application image for the
+Creality loader. No binary is committed or published; `cpp/tools/build_image.py`
+builds one locally.
 
-1. set up the clock as in §2, including the FPU;
-2. point VTOR at the application base `0x08003000`;
-3. start a 1 ms SysTick;
-4. construct a `BoardApp` with address `0xFE` (unassigned; auto-addressing assigns it);
-5. call `init()`, then `loop_once()` forever.
+| File | Content |
+| --- | --- |
+| `gd32f303xe_app.ld` | Flash `0x08003000..0x0807F7FF`, SRAM 64 KiB, MSP at `0x20010000`. Vector table at `0x08003000` (`0x150` bytes), 18 erased bytes at `+0x200` for the Creality header, link-time checks that the image stays out of the loader and the parameter page |
+| `startup.cpp` | Vector table, `Reset_Handler`, fault handling, C++ runtime stubs (no heap, no exceptions, nothing registered for exit) |
+| `system_gd32f303.cpp` | The clock set-up of §2 |
+| `main.cpp` | One `BoardApp` at address `0xFE`, `init()`, then `loop_once()` forever; SysTick, USART1 and EXTI10-15 handlers |
 
-Interrupt handlers forward to `on_systick()`, `on_usart1_irq()` (USART1, IRQ 38)
-and `on_exti10_15_irq()` (EXTI 10–15, IRQ 40, hub FG on PE11). The repository
-policy keeps startup code, linker scripts and binaries out until the release
-gates pass.
+Start-up order, from the loader's jump (MSP from `0x08003000`, every NVIC line
+disabled):
+
+1. FPU on (`CPACR`), before any compiled code runs: the image is hard-float;
+2. interrupts masked, NVIC enables and pending bits cleared again, VTOR = `0x08003000`;
+3. clock tree back to IRC8M, then the stock 120 MHz set-up of §2. Without HXTAL the
+   image stops in the safe state below (stock hangs at the same point);
+4. `.data` copied, `.bss` cleared, static constructors run (there are none today);
+5. interrupts unmasked, `BoardApp` constructed in static storage, `init()` (1 ms
+   SysTick, USART1, EXTI, feeders and hub braked), then the loop.
+
+**Faults.** Every fault and every interrupt without a handler goes to one handler.
+It masks interrupts, resets MSP to the top of SRAM so a stack overflow still gets
+through, brakes the four feeders (IN1 = IN2 = high) and the hub, and holds the hub
+PWM pin high as a plain GPIO output so TIMER0 can no longer drive it. Then it waits
+forever. There is no watchdog (§3), so the box stays there until it is power-cycled;
+the loader then starts again and keeps its 30 s update window.
+
+**USART1 overrun.** With RBNEIE set, an overrun raises the interrupt without RBNE
+and the flag stays until STAT0 then DATA are read. The interrupt handler now does
+that read, so a burst on the bus cannot lock the loop out with a stream of
+interrupts.
+
+**Known limits.** Some driver loops wait on hardware flags without a timeout
+(PLL lock, ADC calibration and conversion, FMC busy). Without a watchdog a stuck
+flag stops the box with the outputs as they were. These are the stock behavior
+too, and they are on the list for the hardware qualification.
+
+**Image identity.** The packager writes the 12-byte version at `+0x200`, the
+CRC-16 and the length (`08-loader-and-recovery.md` §2). Which versions the
+loader's `start_app` and Creality's `mcu_util_485` accept is not analysed yet.
+On the reference printer a version taken from a non-standard file name was
+refused (`start_app NACK`), so until then the image uses the stock form
+`cfs0_000_NNN`, matching the file name `<boot>-<version>.bin`.

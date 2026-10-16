@@ -22,7 +22,26 @@ constexpr uint32_t RCU = 0x40021000;
 constexpr uint32_t SYSTICK = 0xE000E010, NVIC_ISER = 0xE000E100;
 
 // ---- RCU --------------------------------------------------------------------
-constexpr uint32_t RCU_CFG0 = RCU + 0x04, RCU_APB2EN = RCU + 0x18, RCU_APB1EN = RCU + 0x1C;
+constexpr uint32_t RCU_CTL = RCU + 0x00, RCU_CFG0 = RCU + 0x04, RCU_INT = RCU + 0x08,
+                   RCU_APB2EN = RCU + 0x18, RCU_APB1EN = RCU + 0x1C, RCU_CFG1 = RCU + 0x2C;
+enum : uint32_t {
+    RCU_CTL_IRC8MEN = 1u << 0, RCU_CTL_HXTALEN = 1u << 16, RCU_CTL_HXTALSTB = 1u << 17,
+    RCU_CTL_HXTALBPS = 1u << 18, RCU_CTL_CKMEN = 1u << 19, RCU_CTL_PLLEN = 1u << 24,
+    RCU_CTL_PLLSTB = 1u << 25,
+    RCU_CFG0_SCS_MASK = 3u << 0, RCU_CFG0_SCS_PLL = 2u << 0, RCU_CFG0_SCSS_MASK = 3u << 2,
+    RCU_CFG0_SCSS_PLL = 2u << 2, RCU_CFG0_AHBPSC_MASK = 0xFu << 4, RCU_CFG0_APB1PSC_DIV2 = 4u << 8,
+    RCU_CFG0_PLLSEL_HXTAL = 1u << 16, RCU_CFG0_PREDV0_DIV2 = 1u << 17,
+    // PLLMF is bits 21:18 plus bit 27 (bit 4) and bit 30 (bit 5); x30 is 0b011101.
+    RCU_CFG0_PLLMF_MASK = (0xFu << 18) | (1u << 27) | (1u << 30),
+    RCU_CFG0_PLLMF_MUL30 = (0xDu << 18) | (1u << 27),
+    RCU_INT_CLEAR_ALL = 0x009F0000,  // IRC40K..CKM ready/fail flag clears
+    APB1_PMU = 1u << 28,
+};
+constexpr uint32_t PMU = 0x40007000, PMU_CTL = PMU + 0x00, PMU_CS = PMU + 0x04;
+enum : uint32_t {
+    PMU_CTL_LDOVS_HIGH = 3u << 14, PMU_CTL_HDEN = 1u << 16, PMU_CTL_HDS = 1u << 17,
+    PMU_CS_HDRF = 1u << 16, PMU_CS_HDSRF = 1u << 17,
+};
 constexpr uint32_t RCU_CFG0_ADCPSC_MASK = (3u << 14) | (1u << 28), RCU_CFG0_ADCPSC_DIV6 = 2u << 14;
 enum : uint32_t {
     APB2_AF = 1u << 0, APB2_PA = 1u << 2, APB2_PB = 1u << 3, APB2_PC = 1u << 4,
@@ -59,6 +78,7 @@ constexpr uint32_t TIM_CCHP_POEN = 1u << 15;  // advanced timers (TIMER0) only
 // ---- USART -----------------------------------------------------------------
 constexpr uint32_t USART_STAT0 = 0x00, USART_DATA = 0x04, USART_BAUD = 0x08, USART_CTL0 = 0x0C;
 enum : uint32_t {
+    USART_STAT0_ERRORS = 0xFu,  // PERR, FERR, NERR, ORERR
     USART_STAT0_RBNE = 1u << 5, USART_STAT0_TC = 1u << 6, USART_STAT0_TBE = 1u << 7,
     USART_CTL0_REN = 1u << 2, USART_CTL0_TEN = 1u << 3, USART_CTL0_RBNEIE = 1u << 5,
     USART_CTL0_UEN = 1u << 13,
@@ -94,6 +114,8 @@ enum : uint32_t {
 
 // ---- SysTick / NVIC ------------------------------------------------------------
 constexpr uint32_t SYST_CTRL = SYSTICK + 0x0, SYST_LOAD = SYSTICK + 0x4, SYST_VAL = SYSTICK + 0x8;
+constexpr uint32_t SCB_VTOR = 0xE000ED08, SCB_CPACR = 0xE000ED88;
+constexpr uint32_t NVIC_ICER = 0xE000E180, NVIC_ICPR = 0xE000E280;
 
 inline void nvic_enable(uint32_t irq) { reg(NVIC_ISER + 4 * (irq / 32)) = 1u << (irq % 32); }
 
