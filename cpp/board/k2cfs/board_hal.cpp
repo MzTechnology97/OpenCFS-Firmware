@@ -352,8 +352,28 @@ void McuSystem::unique_id(uint8_t out[12]) {
     for (int i = 0; i < 12; ++i) out[i] = uid[i];
 }
 
+bool Eeprom24c16::read(uint16_t addr, uint8_t* out, size_t len) {
+    // Control byte 0xA0 | block << 1 (block = address bits 10..8), then the low byte.
+    const uint8_t dev = static_cast<uint8_t>(0x50 | ((addr >> 8) & 0x7));
+    const uint8_t lo = static_cast<uint8_t>(addr);
+    return bus_.write(dev, &lo, 1) && bus_.read(dev, out, len);
+}
+
+void McuSystem::load_serial(Eeprom24c16& eeprom) {
+    uint8_t raw[19];
+    serial_valid_ = eeprom.read(0x000, raw, sizeof raw);
+    for (size_t i = 0; serial_valid_ && i < sizeof raw; ++i) {
+        serial_valid_ = raw[i] >= 0x20 && raw[i] < 0x7F;  // blank (0xFF) or garbage: fall back
+        serial_[i] = static_cast<char>(raw[i]);
+    }
+}
+
 void McuSystem::serial_number(char out[19]) {
-    // The stock serial comes from production data; use the UID until that is known.
+    if (serial_valid_) {
+        for (int i = 0; i < 19; ++i) out[i] = serial_[i];
+        return;
+    }
+    // No production serial: derive one from the MCU unique ID.
     static const char hex[] = "0123456789ABCDEF";
     uint8_t uid[12];
     unique_id(uid);
@@ -456,8 +476,16 @@ void Board::init() {
     env_.init();
     rfid_.init();
     leds_.init();
-    pin_write(pins::kLcdBacklight, false);
-    pin_mode(pins::kLcdBacklight, PinMode::OutputPP);
+    // Hardware-version straps, pulled down as stock (rt_pin_mode 3).
+    for (Pin p : {pins::kHwStrap0, pins::kHwStrap1}) {
+        pin_mode(p, PinMode::InputPull);
+        pin_pull(p, false);
+    }
+    delay_us(10);
+    secure_element_ = pin_read(pins::kHwStrap0) || pin_read(pins::kHwStrap1);
+    lcd_.init();  // also switches the backlight on, as stock
+    eeprom_.init();
+    system_.load_serial(eeprom_);
 }
 
 Hardware Board::hardware() {

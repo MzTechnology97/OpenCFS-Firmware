@@ -8,6 +8,7 @@
 
 #include "board_io.hpp"
 #include "fm17622.hpp"
+#include "tm1621.hpp"
 #include "vendor_decoders.hpp"
 #include "cfs/hal.hpp"
 #include "cfs/param_store.hpp"
@@ -177,16 +178,35 @@ private:
     bool write_ok_ = true;
 };
 
+// 24C16 (2 KiB) on software I2C PE5/PE6, read-only here. Stock map: serial number
+// 0x000..0x012 (read at boot, 0x080032E8), secure-backend key 0x060..0x06F,
+// "motor block info" record 0x080..0x0AB (written by is_reverse_detooth),
+// self-test word 0x7F0. OpenCFS reads the serial and writes nothing.
+class Eeprom24c16 {
+public:
+    explicit Eeprom24c16(SoftI2c& bus) : bus_(bus) {}
+    void init() { bus_.init(); }
+    bool read(uint16_t addr, uint8_t* out, size_t len);
+
+private:
+    SoftI2c& bus_;
+};
+
 class McuSystem : public System {
 public:
     explicit McuSystem(Clock& clock) : clock_(clock) {}
+    // Reads the production serial number from the EEPROM (stock 0x080032E8).
+    void load_serial(Eeprom24c16& eeprom);
     void reset_after_ms(uint32_t ms) override;
+    // The EEPROM serial when it is valid ASCII, else one derived from the MCU UID.
     void serial_number(char out[19]) override;
     void unique_id(uint8_t out[12]) override;
     void set_aux_output(bool on) override { pin_write(pins::kLcdBacklight, on); }
 
 private:
     Clock& clock_;
+    char serial_[19] = {};
+    bool serial_valid_ = false;
 };
 
 // Everything wired together.
@@ -195,10 +215,18 @@ public:
     Board();
     void init();
     Hardware hardware();
+    // Stock hw_flag: true when a strap reads high (FM15L013 secure element fitted).
+    // OpenCFS reads tags through the FM17622 path either way; secure-element boards
+    // are untested.
+    bool secure_element_fitted() const { return secure_element_; }
     // 1 ms housekeeping for millisecond `now`: monitors, speed loop, odometer, LEDs.
     void tick_1ms(uint32_t now);
-    // Temperature/humidity refresh (stock `lcd` thread, 1 s). Sleeps ~80 ms.
-    void update_environment() { env_.update(clock); }
+    // Stock `lcd` thread, 1 s: refresh temperature/humidity (sleeps ~80 ms) and
+    // show them with the box index on the front display.
+    void update_environment(uint8_t box_index) {
+        env_.update(clock);
+        lcd_.show(env_.temperature_c(), env_.humidity_pct(), box_index);
+    }
     // IRQ hooks.
     void on_usart1_irq() { usart_.on_irq(); }
     void on_exti_fg() {
@@ -214,6 +242,8 @@ private:
     Spi spi_{gd32::SPI1};
     Usart usart_{gd32::USART1};
     SoftI2c aht_bus_{pins::kAhtScl, pins::kAhtSda};
+    SoftI2c eeprom_bus_{pins::kEepromScl, pins::kEepromSda};
+    Eeprom24c16 eeprom_{eeprom_bus_};
     SoftI2c rfid_bus0_{pins::kRfid0Scl, pins::kRfid0Sda};
     SoftI2c rfid_bus1_{pins::kRfid1Scl, pins::kRfid1Sda};
 
@@ -223,12 +253,14 @@ private:
     Mt6826Odometer odometer_{spi_};
     Aht30 env_{aht_bus_};
     Leds leds_;
+    Tm1621 lcd_;
     Rs485 link_{usart_};
     VendorDecoders decoders_;
     tags::TagPipeline pipeline_{decoders_.list(), VendorDecoders::kCount};
     Fm17622Rfid rfid_{rfid_bus0_, rfid_bus1_, clock, pipeline_};
     FlashSettings settings_;
     McuSystem system_{clock};
+    bool secure_element_ = false;
 };
 
 }  // namespace cfs::board

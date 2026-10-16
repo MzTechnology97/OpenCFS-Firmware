@@ -128,7 +128,7 @@ brake), not from the reported state. Object-only CI cannot qualify this.
 | Odometer MT6826S | CS **PB12**, SCK PB13, MISO PB14, MOSI PB15, on the J6 connector [code][str][fn]. Stock bit-bangs the bus (`0x08006E32`) at ≈ 312 kHz, SPI mode 3 [code][fn] | see "MT6826S transactions" below. Multi-turn count × **0.000788641 mm** (≈ 1268 counts/mm; at 15 bits per turn ≈ 25.8 mm per wheel turn [?]) |
 | RFID reader 0 / 1 (FM17622) | software I2C: SCL1 PB10 / SDA1 PB11, SCL2 PB8 / SDA2 PB9 [str][fn] | 7-bit address **0x28** on both buses [code][fn]. Pin table at `0x200001D0`: **reader 0 = PB8/PB9 (J19), reader 1 = PB10/PB11 (J8)** [code]. Slots A/B on reader 0, C/D on reader 1 (`05-preload-rfid.md` §4). See "FM17622 driver" below |
 | Temperature/humidity AHT30 | software I2C: SCL PC11, SDA PC12 [str] | |
-| EEPROM BL24Cxx (24C16, 2 KiB) | software I2C: SCL PE5, SDA PE6 [code][str][fn] | diagnostic records, RFID usage data, motor block info (`read_motor_info eeprom`) [str] |
+| EEPROM BL24Cxx (24C16, 2 KiB) | software I2C: SCL PE5, SDA PE6 [code][str][fn] | Control byte `0xA0 | block << 1`, then the low address byte (`0x0800AEC2`). Map [code]: **`0x000..0x012` serial number** (19 ASCII bytes, read at boot by `0x080032E8` and sent in `0x14`); `0x060..0x06F` secure-backend key (`0x0800D7F8`); `0x080..0x0AB` "motor block info" record written by `is_reverse_detooth`; `0x7F0` self-test word (`0xDEADBEEF`/`0xBAADF00D`, `0x0800B088`). OpenCFS reads the serial and writes nothing. |
 | Front LCD (TM1621B, HT1621-compatible) [fn] | CS PC1, RD PC2, WR PC3, DATA PC4 [code] | protocol in `06-motors-sensors.md` §5 |
 | LCD backlight | **PB0** (`0x10`) [code] | configured by the LCD init; command `0x30` switches it |
 
@@ -233,9 +233,11 @@ group B carries the error patterns. Modes are listed in `06-motors-sensors.md` �
 
 ## 7. Board identity
 
-PD10 and PD11 (`0x3A`, `0x3B`) are read at start-up by the function that prints
-`hardware version: secure encryption chip fm15l013` / `No secure encryption chip`.
-They are the **hardware-version straps behind `hw_flag`** (`0x20000000`) [code].
+PD10 and PD11 (`0x3A`, `0x3B`) are read at start-up with pull-downs (`rt_pin_mode` 3)
+by `0x080032A8`, which prints `hardware version: secure encryption chip fm15l013` /
+`No secure encryption chip`. **Both low = no secure element (`hw_flag` 0)**; either
+high = FM15L013 fitted (`hw_flag` 1). `hw_flag` (`0x20000000`) selects the FM176xx
+init (`0x0800BF74`) or the secure init (`0x080145BE`) [code].
 The reference CFS reads `hw_flag = 0` [hw].
 
 ## 8. Not yet mapped

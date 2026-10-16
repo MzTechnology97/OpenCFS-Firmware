@@ -40,7 +40,7 @@ void BoardApp::loop_once() {
     const uint32_t now = board_.clock.now_ms();
     if (static_cast<int32_t>(now - next_env_ms_) >= 0) {
         next_env_ms_ = now + kEnvironmentMs;
-        board_.update_environment();
+        board_.update_environment(app_.box.box_index);
     }
 }
 

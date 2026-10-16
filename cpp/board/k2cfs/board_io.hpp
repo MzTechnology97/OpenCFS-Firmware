@@ -55,7 +55,7 @@ constexpr Pin kLcdBacklight = P('B', 0);
 // Slot LEDs.
 constexpr Pin kLedA[4] = {P('B', 7), P('B', 4), P('B', 5), P('B', 6)};
 constexpr Pin kLedB[4] = {P('C', 6), P('C', 7), P('C', 8), P('C', 9)};
-// Hardware-version straps (both low = no FM15L013).
+// Hardware-version straps (stock 0x080032A8): both low = no FM15L013 secure element.
 constexpr Pin kHwStrap0 = P('D', 10), kHwStrap1 = P('D', 11);
 }  // namespace pins
 
