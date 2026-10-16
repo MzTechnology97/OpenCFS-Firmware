@@ -58,15 +58,15 @@ against stock 1.5.3.
 | 23 | rfid_neighbor_retry_count | 3 | RFID locate | `timing.rfid_locate_attempts` |
 | 24 | reverse_detooth_timeout_ms | 1000 | `0x080038F0` (`< 0x3E9` ms blocked) | `supervision.detooth_after_ms` |
 | 25 | buffer_fill_timeout_ms | 30000 | `0x08004E62` in `0x08004DF2` | read-only: **dead code**, as ID 10 |
-| 26 | transition_detect_timeout_ms | 300 | catalogue default matches the never-used retry mode of `pull_back_hub_pe` (`0x080048F8`); the live wait is 700 polls at `0x080048CE` | read-only until the site is agreed (k2-cfs-rfid-tools #47) |
+| 26 | transition_detect_timeout_ms | 300 | `0x080042E6` (`mov.w r8, #0x12C`, 300 polls) in `feed_until_hub_sensor` mode 1 | read-only: **dead code**, the only caller (`feed_top_to_hub` `0x08004326`) passes mode 0, so `beq 0x080042E6` at `0x080042C4` is never taken |
 | 27 | load_retry_count | 3 | `0x08005616` | `timing.pretension_cycles`: the number of pretension in/out cycles |
 
 **Units.** `wait_hub_sensor(slot, n, level, debounce)` (`0x0800E85A`) counts
 **10 ms polls**, so IDs 8 and 10 are 7 s and 10 s by default, despite their
 `_ms` names in the host catalogue. IDs 20 and 22 are 20 ms odometer ticks.
 
-IDs 10 and 25 hook a routine with no caller, so they had no effect in stock
-either. A read-only parameter answers GET and DESCRIBE (without the writable flag) and
+IDs 10 and 25 hook a routine with no caller, and ID 26 a branch no caller takes,
+so they had no effect in stock either. A read-only parameter answers GET and DESCRIBE (without the writable flag) and
 refuses SET with status 1, so nothing is ever stored without an effect.
 
 ## 3. Motion interlock

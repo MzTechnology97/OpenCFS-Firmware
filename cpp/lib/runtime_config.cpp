@@ -82,6 +82,7 @@ const RuntimeConfig::Param RuntimeConfig::kParams[kCount] = {
     P{U16, W | ADV | RF, 3, 1, 10, CFS_U32(timing.rfid_locate_attempts)},        // 23
     P{U16, W | ADV | SAFE, 1000, 100, 10000, CFS_U32(supervision.detooth_after_ms)},  // 24
     P{U16, ADV | SAFE, 30000, 1000, 60000, CFS_NOT_MODELED},  // 25 buffer_fill_timeout
+    // 26 hooks feed_until_hub_sensor mode 1 (0x080042E6), which no stock caller uses.
     P{U16, ADV | SAFE, 300, 50, 5000, CFS_NOT_MODELED},       // 26 transition_detect_timeout
     P{U16, W | ADV | SAFE, 3, 1, 10, CFS_U32(timing.pretension_cycles)},       // 27 pretension cycles
 };
