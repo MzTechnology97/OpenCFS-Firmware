@@ -7,7 +7,9 @@
 > clock, vector table, linker script). It boots in an emulator, but motors, sensors,
 > RFID, timing and recovery have not been tested on a physical CFS. No binary is
 > published. Never install a build artifact on a physical CFS before the hardware
-> qualification.
+> qualification. Three variants are built: RELEASE, and two test builds,
+> INERT (no output can move) and BENCH (gated sensor and actuator tests), which
+> identify themselves through command `0x7A` and in the file at `+0x220`.
 
 ## What exists now
 

@@ -70,6 +70,7 @@ Test vectors: `f7 01 04 00 f0 00 4c`, `f7 01 03 ff 14 06` [res].
 | `0x01` | INVALID_PARAM | all (length, mask, sub-command) |
 | `0x02` | BAD_CRC | host-defined; not emitted by the dispatcher path analysed so far |
 | `0x03` | BUSY | 0x04, 0x06, 0x07, 0x10..0x13; 0x50 (mode unchanged) |
+| `0x07` | MOTION_LOCKED (OpenCFS) | INERT and BENCH builds: every command that can start a motor; BENCH jogs before ARM (`13-application.md` §5). Also the runtime-config interlock refusal (`12-runtime-config.md`) |
 | `0x05..0x1A` | feed/unload stage errors | 0x10, 0x11, 0x12, 0x13; see `04-feeder.md` |
 | `0x30` | SLOT_EVENT | 0x0A |
 | `0x50` | RUNOUT | 0x0A in PRINT state |
@@ -204,3 +205,5 @@ Kalico keeps the UID→address mapping.
 | --- | --- | --- | --- |
 | `0x60` | 1: slot | `0x00` + readout, `0x01` invalid slot, `0x08` nothing read yet | Multi-vendor readout of the last tag read on the slot: decoder, UID/ATQA/SAK, material, RGBA, weight, length, diameter, nozzle range, vendor hint, up to 6 raw 16-byte blocks or page groups. Read-only, never starts motion. Layout in `11-multi-vendor-tags.md` §5. |
 | `0x57` | sub-command + args | as K2-OpenHost Runtime Config API v2 | INFO/GET/SET/RESET/DESCRIBE (`0x10`..`0x14`) only, wire-compatible with `box_cfs_runtime.py`; SET/RESET only when the motion interlock holds (status 7 otherwise). Other `0x57` sub-commands answer status 1. `12-runtime-config.md`. |
+| `0x7A` | – | `0x00` + 32 bytes | Build identity: `"OCFS"`, format 1, variant (1 RELEASE, 2 INERT, 3 BENCH), bench level (0 none, 1 SENSORS_ONLY, 2 ACTUATOR_TEST), flags (bit 0 motion locked, bit 1 parameter page read-only, bit 2 vendor keys compiled in), source revision[12], Creality version at image `+0x200`[12]. Every build, also while a routine runs. `13-application.md` §5. |
+| `0x7B` | sub-command + args | see `13-application.md` §5 | **BENCH build only** (status 1 elsewhere, the code is not in the other images): sensor/tag reads, ARM/DISARM, bounded jogs, fault test. |

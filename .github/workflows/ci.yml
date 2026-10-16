@@ -93,9 +93,11 @@ jobs:
           arm-none-eabi-size /tmp/*.o
           test ! -f firmware.bin
           test ! -f firmware.elf
-      - name: Link the EXPERIMENTAL image and check it (no artifact is uploaded)
-        run: python3 cpp/tools/build_image.py --out build-arm
-      - name: Boot the linked image in an emulator (Unicorn, minimal GD32F303 model)
+      - name: Link the EXPERIMENTAL RELEASE, INERT and BENCH images and check them (no artifact is uploaded)
+        run: python3 cpp/tools/build_image.py --variant all --seal --out build-arm
+      - name: Boot each linked image in an emulator (Unicorn, minimal GD32F303 model)
         run: |
           python3 -m venv /tmp/emu && /tmp/emu/bin/pip install --quiet unicorn
-          /tmp/emu/bin/python cpp/tests/image_boot_test.py build-arm/opencfs-unsealed.bin
+          for v in release inert bench; do
+            /tmp/emu/bin/python cpp/tests/image_boot_test.py build-arm/$v/opencfs-unsealed.bin
+          done

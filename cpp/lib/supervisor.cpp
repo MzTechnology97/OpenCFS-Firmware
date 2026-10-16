@@ -48,7 +48,7 @@ void MotorSupervisor::tick() {
         blocked_ms_ = 0;
     } else {
         blocked_ms_ += kPeriodMs;
-        if (blocked_ms_ > cfg_.supervision.detooth_after_ms && cfg_.supervision.reverse_detooth && !detoothing_) {
+        if (blocked_ms_ > cfg_.supervision.detooth_after_ms && cfg_.supervision.reverse_detooth && corrective_ && !detoothing_) {
             detoothing_ = true;
             reenable_at_ = now + kReenableMs;
             const int slot = active_slot();
@@ -63,7 +63,7 @@ void MotorSupervisor::tick() {
 
     if (hw_.hub.overload()) {
         overload_ = true;
-        if (cfg_.supervision.reverse_detooth && !detoothing_) {
+        if (cfg_.supervision.reverse_detooth && corrective_ && !detoothing_) {
             const int slot = active_slot();
             detoothing_ = true;
             reenable_at_ = now + kReenableMs;

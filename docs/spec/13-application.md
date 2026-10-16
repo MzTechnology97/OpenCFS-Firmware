@@ -119,3 +119,81 @@ stock update replaces OpenCFS).
 (§5 of `08-loader-and-recovery.md`). The image unmasks interrupts only after VTOR
 points at its own table, and its SysTick handler does nothing until `BoardApp`
 exists; `Board::init()` then reprograms the tick.
+
+## 5. Build variants: RELEASE, INERT, BENCH (EXPERIMENTAL)
+
+`cpp/tools/build_image.py --variant release|inert|bench|all [--seal]` builds each
+variant in its own directory. With `--seal` the file name carries the variant:
+`cfs0_050_G32-cfs0_000_153-OpenCFS-<VARIANT>-<revision>.bin`, plus a `.sha256`.
+The Creality version at `+0x200` stays `cfs0_000_153` for all three, as the
+loader and K2-OpenHost expect (`08-loader-and-recovery.md` §6.3). The sealed
+bytes are identical to the K2-OpenHost Build-Tools packager's.
+
+| | RELEASE | INERT (stage 1) | BENCH (stages 2–3) |
+| --- | --- | --- | --- |
+| Feeder and hub outputs | normal | locked in the drivers: a run() brakes | locked, except one bounded jog after ARM |
+| Hub PWM pin (PE13) | TIMER0 | plain GPIO held high (off), never given to TIMER0 | GPIO high, TIMER0 only during a hub jog |
+| Motion commands (`0x04`, `0x06`, `0x07`, `0x10`..`0x13`, `0x0D` sub 2/3) | normal | status `0x07` | status `0x07`, also while armed |
+| Preload, pretension, scan on insertion; detooth | normal | never | never |
+| Parameter page `0x0807F800` | written as stock | never erased or written by the image (RAM only) | same as INERT |
+| `0x7B` test commands | not in the image | not in the image | present |
+| `0x7A` identity | variant 1 | variant 2, flags 3 | variant 3, flags 3, bench level |
+
+The loader's `F0 06` still erases the parameter page at every update; INERT and
+BENCH only add no writes of their own.
+
+**How the lock is enforced.** At three levels, so one mistake is not enough:
+- **Drivers:** `Feeders::set_allowed()` and `Hub::set_allowed()` refuse to drive
+  anything not allowed and brake instead. `BoardApp` sets them before the first
+  peripheral set-up.
+- **Dispatcher:** `starts_motion()` commands answer `0x07`.
+- **Application:** no preload step, and the supervisor never starts a corrective
+  move. It still stops motors.
+
+**Identity.**
+- `0x7A`, answered by every build, also while a routine runs:
+  `"OCFS"`, format 1, variant, bench level, flags, revision[12], version[12]
+  (`03-rs485-protocol.md` §8).
+- The same values, in a 40-byte block at image `+0x220`:
+  `"OCFSINFO"`, format 1, variant, flags, 0, revision[12],
+  name[16] (`OpenCFS-RELEASE`, `-INERT`, `-BENCH`).
+
+  A host tool can tell the variant from the `.bin` file before it is flashed,
+  and from the box afterwards.
+
+**BENCH levels.** Every start is **SENSORS_ONLY**: every actuator is locked, and
+reads work (sensors, encoder, environment, tags in place). **ACTUATOR_TEST**
+comes only from an explicit ARM and lasts until:
+- DISARM;
+- a stall, an overload or a travel limit during a jog;
+- 5 s without any frame to this box;
+- 120 s after ARM;
+- a reset.
+
+Nothing about the level is stored.
+
+| `0x7B` sub | Request | Reply | Level |
+| --- | --- | --- | --- |
+| `00` STATUS | – | level, last result, seconds left armed | any |
+| `01` ARM | `'A' 'R' 'M'`, unique ID bytes 8..11 | level | to own address only; refused (`0x03`) unless at rest |
+| `02` DISARM | – | level | any |
+| `10` FEEDER_JOG | slot, dir (0 fwd, 1 rev), ms u16 (1..500) | result, ms u16, feeder voltage mV u16, odometer 0.1 mm i16 | ACTUATOR_TEST |
+| `11` HUB_JOG | dir, speed (1..64), ms u16 (1..1000) | result, ms u16, FG pulses u16, rps ×10 u16, odometer 0.1 mm i16 | ACTUATOR_TEST |
+| `20` TAG_READ | slot | found (bit 0 UID, bit 1 record), UID length, UID[10]; the readout then through `0x60` | any, no motion |
+| `30` FAULT_TEST | slot | `0x00`, then that feeder runs 50 ms and a real CPU fault (`udf`) is raised | ACTUATOR_TEST |
+
+Result codes: 0 done, 1 stalled, 2 overload, 3 travel limit (more than 30 mm on
+the odometer).
+
+Every jog:
+- moves one output, with every other output locked;
+- starts only with everything at rest and the box idle;
+- has a hard time limit;
+- runs the hub PWM capped at 96/255;
+- brakes at the end, whatever the outcome.
+
+A jog or the fault test at SENSORS_ONLY is refused (`0x07`). The bus is
+not served during a jog of at most 1 s; frames wait in the receive buffer.
+
+**Verification.** `tests/image_boot_test.py` runs on each linked binary
+(`14-verification.md`).

@@ -42,8 +42,16 @@ public:
     void tick_20ms();  // current monitor
     float last_volts(int slot) const { return avg_[slot]; }
 
+    // Build-variant gate (docs/spec/13 section 5): only the allowed slot can be
+    // driven, kAllSlots in a release build, kNoSlot in INERT and BENCH builds.
+    // A refused run() brakes the slot.
+    static constexpr int kAllSlots = 4, kNoSlot = -1;
+    void set_allowed(int slot) { allowed_ = slot; }
+    int allowed() const { return allowed_; }
+
 private:
     Adc& adc_;
+    int allowed_ = kAllSlots;
     bool running_[4] = {};
     bool blocked_[4] = {};
     bool moved_since_idle_check_ = false;
@@ -69,11 +77,24 @@ public:
     void on_fg_edge() { pulses_ = pulses_ + 1; }
     void tick_40ms();  // speed PID, blocked/overload detection
     float rps() const { return rps_; }
+    uint32_t fg_pulses() const { return pulses_; }
+
+    // Build-variant gate: a hub that is not allowed keeps BRAKE high and its PWM
+    // pin a plain GPIO output held at the inactive (high) level, so TIMER0 never
+    // drives it. Can be set before init().
+    void set_allowed(bool allowed);
+    bool allowed() const { return allowed_; }
+    // Upper bound of the PWM output (0..255); BENCH jogs lower it.
+    void set_output_cap(uint8_t cap) { cap_ = cap; }
 
 private:
     void apply_output(float out);
+    void pwm_pin_to_timer(bool timer);
 
     PwmTimer& tim_;
+    bool allowed_ = true;
+    bool initialized_ = false;
+    uint8_t cap_ = 255;
     Dir dir_ = Dir::Forward;
     uint8_t speed_ = 0;
     volatile uint32_t pulses_ = 0;
@@ -170,12 +191,17 @@ public:
     uint8_t mode() override { return rec_.mode; }
     void set_mode(uint8_t m) override;
     bool last_write_ok() const { return write_ok_; }
+    // INERT and BENCH builds: the page is read but never erased or programmed;
+    // the record lives in RAM only. Set before load().
+    void set_read_only(bool ro) { read_only_ = ro; }
+    bool read_only() const { return read_only_; }
 
 private:
     bool save();
 
     params::Record rec_;
     bool write_ok_ = true;
+    bool read_only_ = false;
 };
 
 // 24C16 (2 KiB) on software I2C PE5/PE6, read-only here. Stock map: serial number
@@ -213,8 +239,20 @@ private:
 class Board {
 public:
     Board();
+    // Build variant (docs/spec/13 section 5), before init(): with motion locked no
+    // feeder or hub output can be driven and the hub PWM pin never reaches the
+    // timer; with read-only settings the parameter page is never written.
+    void configure(bool motion_locked, bool settings_read_only);
     void init();
     Hardware hardware();
+
+    // For the BENCH build's test commands.
+    Feeders& feeders() { return feeders_; }
+    Hub& hub() { return hub_; }
+    Mt6826Odometer& odometer() { return odometer_; }
+    Sensors& sensors() { return sensors_; }
+    Fm17622Rfid& rfid() { return rfid_; }
+    FlashSettings& settings() { return settings_; }
     // Stock hw_flag: true when a strap reads high (FM15L013 secure element fitted).
     // OpenCFS reads tags through the FM17622 path either way; secure-element boards
     // are untested.

@@ -27,7 +27,7 @@ ever run unattended.
 | --- | --- | --- |
 | P1 | Slot B on the T113 with the corrected container check (k2-openhost-t113-bootstrap #13, programs update from the installer helper) | merged, not installed |
 | P2 | Stock `cfs0_050_G32-cfs0_000_153.bin` on the CM5 with its SHA-256, and the box's UUID from `/tmp/.485_mcu_version` | to collect |
-| P3 | Build variants: **inert** (outputs held braked, motion commands answer BUSY, the parameter page never written) and **bench** (inert plus one bounded jog command: one motor, at most 500 ms, refused while any other output is on) | to implement |
+| P3 | Build variants INERT and BENCH (`13-application.md` §5): outputs locked in the drivers, motion commands answer `0x07`, the parameter page never written by the image; BENCH adds `0x7B` with SENSORS_ONLY / ACTUATOR_TEST. Identify the flashed one with `0x7A` before every stage | implemented, emulator-tested, not run on hardware |
 | P4 | Version at `+0x200`: `cfs0_000_153` or another generation (`08` §6.3: decides whether a stock update replaces OpenCFS) | owner's decision |
 | P5 | Watchdog: none, as stock, for stages 1–2; decide before stage 3 | owner's decision |
 | P6 | A recorded stock baseline (stage 0.1) to compare against | to collect |
@@ -87,7 +87,7 @@ Abort: the box missing after 60 s, repeated enumeration, or any movement.
 
 ## Stage 2 — sensors, read-only
 
-Same inert image, filament handled by hand. For each slot, against the stage
+BENCH image at SENSORS_ONLY (check `0x7A`: variant 3, level 1), filament handled by hand. For each slot, against the stage
 0.1 baseline:
 
 | Sensor | Check |
@@ -95,23 +95,23 @@ Same inert image, filament handled by hand. For each slot, against the stage
 | inlet and hub sensors | inserting and removing the filament changes the slot and hub masks as stock |
 | buffer full/empty | moving the buffer by hand changes the buffer state |
 | MT6826 odometer | pulling a measured length (e.g. 100 mm) gives the stock count, within 2 % |
-| RFID | the same tag gives the same Kalico record as stock |
+| RFID | `0x7B 20` (read in place) then `0x60`: the same tag gives the same readout as stock |
 | EEPROM serial, unique ID, hardware straps | equal to stock |
 
 Pass: every row matches. Recover to stock at the end.
 
 ## Stage 3 — one actuator at a time, no filament
 
-Bench variant. The operator stays at the box, ready to cut power.
+BENCH image. ARM (`0x7B 01` with the box's unique ID) right before each step; it falls back to SENSORS_ONLY by itself after 5 s without frames, 120 s, a stall or an overload. The operator stays at the box, ready to cut power.
 
-1. **Feeder direction.** Slot A, one 300 ms jog in each direction. Pass: it turns
+1. **Feeder direction.** Slot A, one 300 ms jog (`0x7B 10`) in each direction. Pass: it turns
    as in the stock video. Then slots B–D.
 2. **Feeder current.** Jog with the gear free, then lightly held by hand. Pass:
    the stall detector fires only when held, and the ADC voltage is in the range
    assumed by `04-feeder.md`.
-3. **Hub.** Lowest speed, 1 s. Pass: no full-speed start (PWM polarity), FG
+3. **Hub.** `0x7B 11`, low speed, up to 1 s. Pass: no full-speed start (PWM polarity), FG
    pulses counted, the brake stops it.
-4. **Fault path.** A bench command that forces a fault while one feeder runs.
+4. **Fault path.** `0x7B 30`: a real CPU fault while one feeder runs.
    Pass: everything brakes, the box stops answering, and a power cycle brings
    it back through the loader.
 

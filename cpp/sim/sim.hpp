@@ -64,7 +64,10 @@ public:
     void run(Dir dir, uint8_t speed) override {
         hub_dir_ = dir;
         hub_speed_ = speed;
-        if (speed) motion_since_idle_check_ = true;
+        if (speed) {
+            motion_since_idle_check_ = true;
+            ++motor_commands;
+        }
     }
     void stop() override { hub_speed_ = 0; }
     bool blocked() override { return hub_blocked; }
@@ -81,6 +84,7 @@ public:
         return !moved && hub_speed_ == 0;
     }
     bool motion_since_idle_check_ = false;
+    uint32_t motor_commands = 0;  // feeder/hub run() calls with a non-zero speed
 
     // Odometer
     float position_mm() override { return odom_; }
