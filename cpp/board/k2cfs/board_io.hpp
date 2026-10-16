@@ -67,6 +67,8 @@ inline void pin_write(Pin p, bool high) {
     gd32::reg(p.port() + (high ? gd32::GPIO_BOP : gd32::GPIO_BC)) = p.mask();
 }
 inline bool pin_read(Pin p) { return (gd32::reg(p.port() + gd32::GPIO_ISTAT) & p.mask()) != 0; }
+// Level the output register commands (OCTL), independent of the pin's load.
+inline bool pin_commanded(Pin p) { return (gd32::reg(p.port() + gd32::GPIO_OCTL) & p.mask()) != 0; }
 
 // ---- busy-wait microsecond delay (SysTick must run at HCLK) --------------------
 void delay_us(uint32_t us);
@@ -79,6 +81,7 @@ public:
     void init(uint32_t hz, uint16_t steps);
     void enable_channel(int ch);
     void set_compare(int ch, uint16_t value);
+    uint16_t compare(int ch) const;
     uint16_t steps() const { return steps_; }
 
 private:

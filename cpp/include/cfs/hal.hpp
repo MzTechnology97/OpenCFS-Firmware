@@ -27,6 +27,11 @@ public:
     virtual void run(int slot, Dir dir, uint8_t speed) = 0;
     virtual void stop(int slot) = 0;
     virtual bool blocked(int slot) = 0;
+    // True when every feeder's commanded outputs are at brake/off (read back from
+    // the output registers where the board can) and no run() happened since the
+    // previous call. Sticky on purpose: the runtime-config interlock may not be
+    // polled while a blocking motion routine runs.
+    virtual bool outputs_idle() = 0;
     void stop_all() {
         for (int s = 0; s < kSlotCount; ++s) {
             stop(s);
@@ -45,6 +50,9 @@ public:
     // Last command (speed 0 = stopped), needed to resume after a detooth.
     virtual Dir current_dir() = 0;
     virtual uint8_t current_speed() = 0;
+    // True when the hub is commanded off and braked, with no run() and no FG pulse
+    // since the previous call (runtime-config interlock).
+    virtual bool outputs_idle() = 0;
 };
 
 // Hub odometer in mm. Feeding toward the toolhead makes the value decrease.

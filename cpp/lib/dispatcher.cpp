@@ -59,6 +59,7 @@ void Dispatcher::poll() {
         }
     }
     rx_.poll_timeout(hw_.clock.now_ms());
+    interlock_.poll();
     auto_.poll();
 }
 
@@ -435,6 +436,13 @@ void Dispatcher::handle(const Frame& f) {
         reply(f.cmd, Status::Ok);
         hw_.system.reset_after_ms(100);
         break;
+    case Cmd::RuntimeConfig: {
+        uint8_t v[16];
+        size_t n = 0;
+        const uint8_t st = runtime_.handle(p, f.len, v, n);
+        reply_raw(f.cmd, st, v, n);
+        break;
+    }
     case Cmd::TagInfo: {
         if (!check_len(f, 1)) break;
         if (p[0] >= kSlotCount) {

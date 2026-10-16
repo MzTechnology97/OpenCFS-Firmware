@@ -203,3 +203,4 @@ Kalico keeps the UID→address mapping.
 | Cmd | Request | Reply | Behavior |
 | --- | --- | --- | --- |
 | `0x60` | 1: slot | `0x00` + readout, `0x01` invalid slot, `0x08` nothing read yet | Multi-vendor readout of the last tag read on the slot: decoder, UID/ATQA/SAK, material, RGBA, weight, length, diameter, nozzle range, vendor hint, up to 6 raw 16-byte blocks or page groups. Read-only, never starts motion. Layout in `11-multi-vendor-tags.md` §5. |
+| `0x57` | sub-command + args | as K2-OpenHost Runtime Config API v2 | INFO/GET/SET/RESET/DESCRIBE (`0x10`..`0x14`) only, wire-compatible with `box_cfs_runtime.py`; SET/RESET only when the motion interlock holds (status 7 otherwise). Other `0x57` sub-commands answer status 1. `12-runtime-config.md`. |

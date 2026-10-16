@@ -45,6 +45,7 @@ void Feeders::run(int slot, Dir dir, uint8_t speed) {
         return;
     }
     const bool dir0 = dir == Dir::Forward;
+    moved_since_idle_check_ = true;
     pin_write(pins::kFeederIn2[slot], dir0);
     pin_write(pins::kFeederIn1[slot], !dir0);
     if (!running_[slot]) {
@@ -52,6 +53,16 @@ void Feeders::run(int slot, Dir dir, uint8_t speed) {
         fill_[slot] = 0;
         blocked_[slot] = false;
     }
+}
+
+bool Feeders::outputs_idle() {
+    const bool moved = moved_since_idle_check_;
+    moved_since_idle_check_ = false;
+    if (moved) return false;
+    for (int s = 0; s < 4; ++s) {
+        if (!pin_commanded(pins::kFeederIn1[s]) || !pin_commanded(pins::kFeederIn2[s])) return false;
+    }
+    return true;
 }
 
 void Feeders::stop(int slot) {
@@ -116,6 +127,7 @@ void Hub::run(Dir dir, uint8_t speed) {
         return;
     }
     dir_ = dir;
+    moved_since_idle_check_ = true;
     pin_write(pins::kHubDir, dir == Dir::Forward);
     pin_write(pins::kHubBrake, false);
     if (speed_ == 0) {
@@ -135,6 +147,16 @@ void Hub::stop() {
     overload_ = false;
     sat_count_ = 0;
     for (auto& s : saturated_) s = 0;
+}
+
+bool Hub::outputs_idle() {
+    const uint32_t p = pulses_;
+    const bool no_pulse = p == idle_check_pulses_;
+    idle_check_pulses_ = p;
+    const bool moved = moved_since_idle_check_;
+    moved_since_idle_check_ = false;
+    return !moved && speed_ == 0 && no_pulse && pin_commanded(pins::kHubBrake) &&
+           tim_.compare(kHubPwmChannel) >= tim_.steps();  // active low: full high = off
 }
 
 void Hub::tick_40ms() {

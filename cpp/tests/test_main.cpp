@@ -15,6 +15,7 @@
 #include "cfs/param_store.hpp"
 #include "cfs/preload.hpp"
 #include "cfs/print_tracker.hpp"
+#include "cfs/runtime_config.hpp"
 #include "cfs/spool.hpp"
 #include "cfs/sha256.hpp"
 #include "cfs/supervisor.hpp"
@@ -56,7 +57,7 @@ struct Rig {
     RfidScanner scanner{hw, box, feeder, cfg};
     Preload preload{hw, box, feeder, scanner, cfg};
     UsageManager usage{hw, box};
-    MotorSupervisor supervisor{hw, box};
+    MotorSupervisor supervisor{hw, box, cfg};
     Dispatcher disp;
 
     explicit Rig(uint8_t address = 1) : disp(hw, box, cfg, feeder, print, address) {
@@ -733,6 +734,93 @@ void test_tag_info_command() {
     CHECK(reply[5] == 1 && reply[6] == 4 && reply[5 + 17] == 'P');
 }
 
+// ---- Runtime Config API v2 (box_cfs_runtime.py wire format) and its interlock ----
+std::vector<uint8_t> rt_payload(const std::vector<uint8_t>& frame_bytes) {
+    // F7 addr len status cmd payload... crc
+    if (frame_bytes.size() < 6) return {};
+    return std::vector<uint8_t>(frame_bytes.begin() + 5, frame_bytes.end() - 1);
+}
+
+void test_runtime_config_protocol() {
+    Rig rig;
+    auto r = rig.request(0x57, {0x10});
+    CHECK(status_of(r) == 0 && rt_payload(r) == std::vector<uint8_t>({2, 28, 1, 0x2B}));
+
+    // Every parameter: GET equals the catalogue default with a default Config,
+    // DESCRIBE carries type, flags, default, min and max.
+    for (uint8_t id = 0; id < cfs::RuntimeConfig::kCount; ++id) {
+        const auto& p = cfs::RuntimeConfig::kParams[id];
+        r = rig.request(0x57, {0x11, id});
+        auto v = rt_payload(r);
+        CHECK(status_of(r) == 0 && v.size() == 3 && v[0] == id && (v[1] | v[2] << 8) == p.def);
+        r = rig.request(0x57, {0x14, id});
+        v = rt_payload(r);
+        CHECK(status_of(r) == 0 && v.size() == 8 && (v[2] | v[3] << 8) == p.def &&
+              (v[4] | v[5] << 8) == p.min && (v[6] | v[7] << 8) == p.max);
+    }
+    CHECK(status_of(rig.request(0x57, {0x11, 28})) == 1);  // unknown id
+    CHECK(status_of(rig.request(0x57, {0x09})) == 1);      // K2-OpenHost-only sub-command
+}
+
+void test_runtime_config_interlock() {
+    Rig rig;
+    auto set = [&](uint8_t id, uint16_t v) {
+        return rig.request(0x57, {0x12, id, static_cast<uint8_t>(v), static_cast<uint8_t>(v >> 8)});
+    };
+    // Fresh boot: not yet seen at rest for 500 ms.
+    CHECK(status_of(set(1, 120)) == 7 && rig.cfg.speeds.hub_forward == 100);
+    rig.w.sleep_ms(600);
+    auto r = set(1, 120);
+    CHECK(status_of(r) == 0 && rt_payload(r) == std::vector<uint8_t>({1, 120, 0}));
+    CHECK(rig.cfg.speeds.hub_forward == 120);
+
+    // Bounds and read-only parameters are refused without touching the value.
+    CHECK(status_of(set(1, 0)) == 1 && rig.cfg.speeds.hub_forward == 120);
+    CHECK(status_of(set(0, 200)) == 1 && rig.cfg.speeds.feeder_forward == 255);  // GPIO feeders
+    CHECK(status_of(set(25, 20000)) == 1);                                         // not modeled
+
+    // ID 8 counts 10 ms polls like stock.
+    CHECK(status_of(set(8, 900)) == 0 && rig.cfg.timing.hub_sensor_timeout_ms == 9000);
+
+    // A feeder running: busy. Stopped again: still busy until 500 ms at rest.
+    rig.hw.feeders.run(2, Dir::Forward, 255);
+    CHECK(status_of(set(5, 90)) == 7);
+    rig.hw.feeders.stop(2);
+    CHECK(status_of(set(5, 90)) == 7);
+    rig.w.sleep_ms(300);
+    CHECK(status_of(set(5, 90)) == 7);
+    rig.w.sleep_ms(300);
+    CHECK(status_of(set(5, 90)) == 0 && rig.cfg.speeds.hub_reverse == 90);
+
+    // A short hub run between two polls is still seen (sticky idle check).
+    rig.w.sleep_ms(600);
+    rig.hw.hub.run(Dir::Forward, 100);
+    rig.hw.hub.stop();
+    CHECK(status_of(set(5, 95)) == 7);
+
+    // Not IDLE, or a motion scope open: busy even with every output off.
+    rig.w.sleep_ms(600);
+    rig.box.enter(BoxState::Print);
+    CHECK(status_of(set(2, 210)) == 7);
+    rig.box.set_idle();
+    rig.w.sleep_ms(600);
+    {
+        MotionScope m(rig.box);
+        CHECK(status_of(set(2, 210)) == 7);
+    }
+    rig.w.sleep_ms(600);
+    CHECK(status_of(set(2, 210)) == 0);
+
+    // RESET follows the same interlock, then restores every default.
+    rig.hw.hub.run(Dir::Forward, 100);
+    CHECK(status_of(rig.request(0x57, {0x13, 0xFF})) == 7 && rig.cfg.speeds.hub_forward == 120);
+    rig.hw.hub.stop();
+    rig.w.sleep_ms(600);
+    CHECK(status_of(rig.request(0x57, {0x13, 0xFF})) == 0);
+    CHECK(rig.cfg.speeds.hub_forward == 100 && rig.cfg.speeds.hub_reverse == 80 &&
+          rig.cfg.speeds.hub_transition == 200 && rig.cfg.timing.hub_sensor_timeout_ms == 7000);
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -757,6 +845,8 @@ int main() {
         {"sha256_hkdf", test_sha256_hkdf},
         {"multi_vendor_tags", test_multi_vendor_tags},
         {"tag_info_command", test_tag_info_command},
+        {"runtime_config_protocol", test_runtime_config_protocol},
+        {"runtime_config_interlock", test_runtime_config_interlock},
     };
     for (const Test& t : tests) {
         const int before = g_failed;

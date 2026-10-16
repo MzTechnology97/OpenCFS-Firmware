@@ -55,6 +55,10 @@ void PwmTimer::set_compare(int ch, uint16_t value) {
     reg(base_ + TIM_CH0CV + 4u * static_cast<uint32_t>(ch)) = value;
 }
 
+uint16_t PwmTimer::compare(int ch) const {
+    return static_cast<uint16_t>(reg(base_ + TIM_CH0CV + 4u * static_cast<uint32_t>(ch)));
+}
+
 // ---- USART ------------------------------------------------------------------------
 void Usart::init(uint32_t baud, uint32_t pclk_hz) {
     reg(base_ + USART_CTL0) = 0;

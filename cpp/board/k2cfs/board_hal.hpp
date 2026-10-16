@@ -36,6 +36,8 @@ public:
     void run(int slot, Dir dir, uint8_t speed) override;
     void stop(int slot) override;
     bool blocked(int slot) override { return blocked_[slot]; }
+    // Both inputs of every driver commanded high (brake), read back from GPIOD OCTL.
+    bool outputs_idle() override;
     void tick_20ms();  // current monitor
     float last_volts(int slot) const { return avg_[slot]; }
 
@@ -43,6 +45,7 @@ private:
     Adc& adc_;
     bool running_[4] = {};
     bool blocked_[4] = {};
+    bool moved_since_idle_check_ = false;
     float window_[4][5] = {};
     uint8_t fill_[4] = {};
     float avg_[4] = {};
@@ -59,6 +62,9 @@ public:
     bool overload() override { return overload_; }
     Dir current_dir() override { return dir_; }
     uint8_t current_speed() override { return speed_; }
+    // Speed 0, BRAKE commanded high, PWM compare at the inactive level and no FG
+    // pulse since the previous call.
+    bool outputs_idle() override;
     void on_fg_edge() { pulses_ = pulses_ + 1; }
     void tick_40ms();  // speed PID, blocked/overload detection
     float rps() const { return rps_; }
@@ -71,6 +77,8 @@ private:
     uint8_t speed_ = 0;
     volatile uint32_t pulses_ = 0;
     uint32_t last_pulses_ = 0;
+    uint32_t idle_check_pulses_ = 0;
+    bool moved_since_idle_check_ = false;
     float rps_ = 0.0f;
     float integral_ = 0.0f;
     uint8_t stall_count_ = 20;

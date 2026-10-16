@@ -47,6 +47,7 @@ enum class Cmd : uint8_t {
     UniqueId = 0x5B,
     SecureChallenge = 0x5C,
     FactoryTest = 0x5D,
+    RuntimeConfig = 0x57,  // K2-OpenHost Runtime Config API v2 sub-commands (docs/12)
     TagInfo = 0x60,  // OpenCFS extension: last tag readout of a slot (docs/11)
 };
 

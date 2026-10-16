@@ -12,6 +12,7 @@
 #include "cfs/hal.hpp"
 #include "cfs/preload.hpp"
 #include "cfs/print_tracker.hpp"
+#include "cfs/runtime_config.hpp"
 #include "cfs/usage.hpp"
 
 namespace cfs {
@@ -21,7 +22,7 @@ public:
     Dispatcher(Hardware& hw, Box& box, Config& cfg, Feeder& feeder, PrintTracker& print,
                uint8_t address)
         : hw_(hw), box_(box), cfg_(cfg), feeder_(feeder), print_(print), auto_(hw, address),
-          rx_(address), address_(address) {}
+          rx_(address), address_(address), interlock_(hw, box), runtime_(cfg, interlock_) {}
 
     // Reads every available byte and executes complete frames.
     void poll();
@@ -65,6 +66,8 @@ private:
     Status stage4_result_ = Status::Ok;
     bool loading_ = false;
     int loading_slot_ = -1;
+    MotionInterlock interlock_;
+    RuntimeConfig runtime_;
 };
 
 }  // namespace cfs

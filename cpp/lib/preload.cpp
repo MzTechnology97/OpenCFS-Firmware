@@ -12,13 +12,13 @@ void RfidScanner::nudge_neighbor_away(int slot) {
     }
     MotionScope m(box_);
     hw_.feeders.run(n, Dir::Reverse, cfg_.speeds.feeder_reverse);
-    hw_.clock.sleep_ms(400);
+    hw_.clock.sleep_ms(cfg_.timing.rfid_neighbor_move_ms);
     hw_.feeders.stop(n);
     hw_.clock.sleep_ms(800);
 }
 
 bool RfidScanner::locate(int slot) {
-    for (int attempt = 0; attempt < 3; ++attempt) {
+    for (uint32_t attempt = 0; attempt < cfg_.timing.rfid_locate_attempts; ++attempt) {
         const auto d = hw_.rfid.detect(slot);
         if (d == RfidReader::Detect::One) {
             return true;
@@ -30,9 +30,9 @@ bool RfidScanner::locate(int slot) {
         // No tag in the field: rotate the spool a little with the hub.
         MotionScope m(box_);
         hw_.hub.run(Dir::Forward, cfg_.speeds.rfid_seek);
-        hw_.clock.sleep_ms(800);
+        hw_.clock.sleep_ms(cfg_.timing.rfid_seek_move_ms);
         hw_.hub.stop();
-        hw_.clock.sleep_ms(200);
+        hw_.clock.sleep_ms(cfg_.timing.rfid_seek_settle_ms);
     }
     return hw_.rfid.detect(slot) == RfidReader::Detect::One;
 }
@@ -94,7 +94,7 @@ bool RfidScanner::read_record(int slot) {
         }
         MotionScope m(box_);
         hw_.feeders.run(slot, Dir::Reverse, cfg_.speeds.feeder_reverse);
-        hw_.clock.sleep_ms(1000);
+        hw_.clock.sleep_ms(cfg_.timing.rfid_retry_reverse_ms);
         hw_.feeders.stop(slot);
         hw_.hub.run(Dir::Forward, cfg_.speeds.rfid_reposition);
         for (int t = 0; t < 3000 && hw_.rfid.detect(slot) != RfidReader::Detect::One; ++t) {

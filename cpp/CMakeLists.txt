@@ -20,6 +20,7 @@ add_library(cfs_core
     lib/aes128.cpp
     lib/creality_tag.cpp
     lib/sha256.cpp
+    lib/runtime_config.cpp
     lib/tags/tag.cpp
     lib/tags/decoders.cpp
 )

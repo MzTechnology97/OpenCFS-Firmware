@@ -29,6 +29,7 @@ code. How it was produced, honestly stated:
 | `param_store.*` | stock parameter page codec (CRC-16/XMODEM, keys 5 and 6, load policy) |
 | `aes128.*`, `creality_tag.*` | AES-128 block cipher and the stock Creality tag Key A derivation / block decryption (keys are parameters) |
 | `sha256.*` | SHA-256, HMAC-SHA256 and HKDF-SHA256 (Bambu key derivation) |
+| `runtime_config.*` | K2-OpenHost Runtime Config API v2 (`0x57` 0x10..0x14, 28 IDs, RAM only) with the MCU motion interlock (`docs/spec/12`) |
 | `tags/tag.*`, `tags/decoders.*` | read-only multi-vendor tag pipeline: Creality, Bambu, configured MIFARE keys (QIDI), NFC Type 2 / NDEF (OpenSpool), per-UID routing, command `0x60` payload (`docs/spec/11`) |
 | `board/k2cfs/` | GD32F303 board port: own register map, GPIO/PWM/USART/ADC/SPI/soft-I2C, and HAL drivers (GPIO feeders with the ripple stall detector, hub speed PID with blocked/overload, sensors, MT6826S with the stock framing, AHT30, LEDs, RS-485, stock-compatible flash parameter page, FM17622 read-only RFID driver as a tag session, `vendor_decoders.hpp` building the decoders from git-ignored `local/creality_keys.hpp` (`tools/re/extract_tag_keys.py`, from your own firmware image) and `local/vendor_keys.hpp` (from `vendor_keys.example.hpp`)). Compiled as objects only. |
 | `sim/` | deterministic filament-path simulator implementing the HAL |

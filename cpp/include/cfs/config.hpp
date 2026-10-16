@@ -50,6 +50,17 @@ struct Timing {
     float refill_min_mm = 5.0f;
     float refill_max_mm = 40.0f;
     uint32_t refill_max_retriggers = 2;
+    // RFID locate / read (docs/05-preload-rfid.md section 5).
+    uint32_t rfid_locate_attempts = 3;
+    uint32_t rfid_neighbor_move_ms = 400;
+    uint32_t rfid_seek_move_ms = 800;
+    uint32_t rfid_seek_settle_ms = 200;
+    uint32_t rfid_retry_reverse_ms = 1000;
+};
+
+struct Supervision {
+    bool reverse_detooth = true;     // MSH `reverse_detooth_set`
+    uint32_t detooth_after_ms = 1000;  // blocked time before a reverse detooth
 };
 
 struct SpoolGeometry {
@@ -61,6 +72,7 @@ struct Config {
     Speeds speeds;
     Timing timing;
     SpoolGeometry spool;
+    Supervision supervision;
 };
 
 }  // namespace cfs

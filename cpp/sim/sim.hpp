@@ -61,12 +61,26 @@ public:
     bool blocked(int slot) override { return feeder_blocked[slot]; }
 
     // HubDriver
-    void run(Dir dir, uint8_t speed) override { hub_dir_ = dir; hub_speed_ = speed; }
+    void run(Dir dir, uint8_t speed) override {
+        hub_dir_ = dir;
+        hub_speed_ = speed;
+        if (speed) motion_since_idle_check_ = true;
+    }
     void stop() override { hub_speed_ = 0; }
     bool blocked() override { return hub_blocked; }
     bool overload() override { return hub_overload; }
     Dir current_dir() override { return hub_dir_; }
     uint8_t current_speed() override { return hub_speed_; }
+    // FeederDriver and HubDriver share this one override in the simulator.
+    bool outputs_idle() override {
+        const bool moved = motion_since_idle_check_;
+        motion_since_idle_check_ = false;
+        for (uint8_t s : feeder_speed_) {
+            if (s) return false;
+        }
+        return !moved && hub_speed_ == 0;
+    }
+    bool motion_since_idle_check_ = false;
 
     // Odometer
     float position_mm() override { return odom_; }
