@@ -24,6 +24,22 @@ else()
     target_compile_options(cfs_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
 endif()
 
+# GD32F303 board port (K2 CFS). Built for the host only as a compile check: it
+# touches MCU registers and must never run there. CI cross-compiles it for Cortex-M4.
+option(CFS_BUILD_BOARD_CHECK "Compile the board port as a host syntax check" ON)
+if(CFS_BUILD_BOARD_CHECK)
+    add_library(cfs_board_check OBJECT
+        board/k2cfs/board_io.cpp
+        board/k2cfs/board_hal.cpp
+    )
+    target_include_directories(cfs_board_check PRIVATE include board/k2cfs)
+    if(MSVC)
+        target_compile_options(cfs_board_check PRIVATE /W4 /WX /permissive-)
+    else()
+        target_compile_options(cfs_board_check PRIVATE -Wall -Wextra -Werror -Wpedantic)
+    endif()
+endif()
+
 option(CFS_BUILD_TESTS "Build the host simulator and tests" ON)
 if(CFS_BUILD_TESTS)
     enable_testing()

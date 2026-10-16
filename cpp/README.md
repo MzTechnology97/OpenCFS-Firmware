@@ -26,6 +26,7 @@ code. How it was produced, honestly stated:
 | `auto_address.*` | A0–A3 enumeration (random discovery back-off, triple assign reply) |
 | `usage.*` | filament usage accounting with live remaining-percent updates while printing |
 | `supervisor.*` | blocked/overload supervision, reverse detooth, 10 s safety stop |
+| `board/k2cfs/` | GD32F303 board port: own register map, GPIO/PWM/USART/ADC/SPI/soft-I2C, and HAL drivers (feeders with the ripple stall detector, hub speed PID with blocked/overload, sensors, MT6826, AHT30, LEDs, RS-485). Compiled as objects only. |
 | `sim/` | deterministic filament-path simulator implementing the HAL |
 | `tests/` | host tests (97 checks) |
 
@@ -59,7 +60,7 @@ Missing:
 - `0x5C` (secure-element challenge) and `0x5D` (factory test);
 - the K2-OpenHost `0x57` API;
 - LED/LCD;
-- the GD32F303 board port.
+- in the board port: startup code, linker script and clock tree (no ELF/BIN by repository policy), the FM176xx RFID driver, the flash parameter store, and hardware confirmation of the MT6826 SPI framing and feeder direction.
 
 **Nothing here produces a flashable image.** The repository's release gates
 (`docs/ROADMAP.md`) apply unchanged.

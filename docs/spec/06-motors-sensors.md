@@ -143,10 +143,32 @@ most once per **11.1 s** window.
 | 7 | group-B breathing | `0x08` slot empty, `0x16`, `0x50` runout |
 | 8 | group-B breathing on all slots | `0x18` all empty |
 | 9 | alternating groups on all slots, 1.2 s | (other subsystem) |
-| 10..13 | further patterns | not decoded yet |
+| 10 | single-LED blink at 500 ms, LED chosen by the mode parameter | factory/aging tests |
+| 11 | all LEDs off | |
+| 12 | all group-A LEDs on, group B off | |
+| 13 | all group-B LEDs on, group A off | |
 
 Codes `0x14` and `0x20` choose a mode from the sensors: hub-only → 4, inlet-only → 5,
 neither → 6.
+
+In modes 3–7 only the selected slot runs the pattern; every other slot shows its
+inlet sensor on group A (on = filament present) with group B off.
+
+### Front display content
+
+Five 7-segment positions. Each is one 16-bit word written at address `position × 4`;
+the `lcd` thread refreshes them every second.
+
+| Position | Content |
+| --- | --- |
+| 0, 1 | humidity, tens and units (0..99) |
+| 2, 3 | temperature, tens and units (−9..99; position 2 shows `-` when negative) |
+| 4 | box index 0..4 (from `0x51`) |
+
+Segment bits are a `0x1000`, b `0x0100`, c `0x0200`, d `0x0020`, e `0x0002`,
+f `0x0001` and g `0x0010`. Bit `0x2000` is an extra symbol, lit together with the
+digits in positions 0, 2, 3 and 4. The font covers 0–9, A–F and one more glyph
+(`0x1223`).
 
 ## 6. Threads and timers summary
 

@@ -99,7 +99,5 @@ The reference CFS reads `hw_flag = 0` [hw].
 ## 8. Not yet mapped
 
 - clock tree set by the application (the loader configures the PLL);
-- LCD segment map (which segments form which digit);
-- indicator modes 10..13;
 - address straps `PIN_ADDRESS_A/B`, `PIN_BG_CTL`, `PIN_IO_POWER` (factory test only);
 - FM15L013 interface (absent on the reference board).
