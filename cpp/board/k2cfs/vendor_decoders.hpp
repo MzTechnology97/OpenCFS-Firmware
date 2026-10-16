@@ -27,7 +27,7 @@ namespace cfs::board {
 
 class VendorDecoders {
 public:
-    static constexpr size_t kCount = 5;
+    static constexpr size_t kCount = 6;
 
     VendorDecoders()
 #if CFS_HAVE_CREALITY_KEYS
@@ -37,12 +37,14 @@ public:
 #endif
 #if CFS_HAVE_VENDOR_KEYS
           bambu_(local::kHaveBambuSalt ? local::kBambuSalt : nullptr, sizeof local::kBambuSalt),
+          snapmaker_(local::kHaveSnapmakerSalt ? local::kSnapmakerSalt : nullptr, sizeof local::kSnapmakerSalt),
           key_list_(local::kKeyList, sizeof local::kKeyList / sizeof local::kKeyList[0]),
 #else
           bambu_(nullptr, 0),
+          snapmaker_(nullptr, 0),
           key_list_(nullptr, 0),
 #endif
-          list_{&creality_, &bambu_, &key_list_, &type2_, &type4_} {
+          list_{&creality_, &bambu_, &snapmaker_, &key_list_, &type2_, &type4_} {
     }
 
     tags::TagDecoder* const* list() const { return list_; }
@@ -50,6 +52,7 @@ public:
 private:
     tags::CrealityDecoder creality_;
     tags::BambuDecoder bambu_;
+    tags::SnapmakerDecoder snapmaker_;
     tags::KeyListDecoder key_list_;
     tags::Type2Decoder type2_;
     tags::Type4Decoder type4_;

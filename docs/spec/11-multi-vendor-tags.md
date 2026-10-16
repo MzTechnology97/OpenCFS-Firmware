@@ -67,7 +67,21 @@ decoder that read it last (8 entries, RAM only).
 | 3 | Key list | any Classic | user list (e.g. QIDI factory key) | blocks 4–6 | raw only; QIDI codes from block 4 bytes 0..2 when the entry is tagged QIDI |
 | 4 | Type 2 / NDEF | NTAG / Ultralight | none | pages 4.., until the end of the NDEF message or 256 bytes | OpenSpool JSON (`type`, `color_hex`, `brand`, `min_temp`, `max_temp`), otherwise raw |
 | 5 | Type 4 / NDEF | ISO-DEP (SAK bit 5) | none | NDEF file up to 192 bytes in 48-byte READ BINARY chunks | OpenSpool JSON fields, raw 16-byte chunks |
-| – | Snapmaker U1, Anycubic, ELEGOO, TigerTag, OpenTag3D | | | | planned, need real dumps for tests |
+| 6 | Snapmaker U1 | Classic 1K, 4-byte UID | per sector Key A = HKDF-SHA256(salt = user's Snapmaker salt, IKM = UID, info `"key_a_<n>"`, 6) | blocks 4–6, 8–10 | material (type + subtype), RGB + alpha, diameter, weight, length, nozzle range |
+
+**Type 2 formats** (decoder 4, recognized in this order on the memory from page 4;
+the format goes into the vendor hint):
+
+| Hint | Format | Signature | Fields | Source |
+| --- | --- | --- | --- | --- |
+| 4 | TigerTag / TigerTag+ / Init | big-endian ID `0x5BF59264` / `0xBC0FCB97` / `0x6C41A2E1` | material ID as `TT<id>` (the host maps it), RGBA, quantity by unit (g, kg, m, cm), nozzle range, diameter ID (`0x38` 1.75, `0xDD` 2.85). ECDSA signature not checked | TigerTag-RFID-Guide §2 (CC-BY-4.0), example §4 as test |
+| 5 | Anycubic ACE Pro v1/v2 | `7B ?? 64/65 ??` | type text, color A B G R, nozzle range (three HS ranges merged), diameter, length, weight (little endian) | anycubic-nfc-filament `format.md`, its v1 and HS dumps as tests |
+| 6 | ELEGOO | `36 EE EE EE EE` | material + supplement, RGB, diameter, weight (packed, big endian) | ELEGOO-RFID-Tag-Guide; **the guide contradicts itself on alignment and on the material encoding, not checked on a real tag** |
+| 2 | OpenSpool | NDEF MIME `application/json` | type, color_hex, min/max temp | OpenSpool |
+| 3 | OpenTag3D | NDEF MIME `application/opentag3d` (any record of the message) | material + modifier, RGBA, diameter (µm), nozzle range (×5 °C), weight, measured length | OpenTag3D `spec.json` v2 |
+
+Hint 1 is QIDI (key list), 7 Snapmaker. Formats built from public specifications
+are tested on the published examples, not on physical tags.
 
 Bambu field layout (from the hardware-validated host decoder `box_rfid_bambu.py`):
 block 1 = variant id[8] + material id[8]; block 2 = filament type (ASCII);
@@ -87,7 +101,7 @@ Payload (all multi-byte fields little-endian):
 | Off | Size | Field |
 | --- | --- | --- |
 | 0 | 1 | slot |
-| 1 | 1 | decoder id: 0 none, 1 Creality, 2 Bambu, 3 key list, 4 Type 2, 5 Type 4 |
+| 1 | 1 | decoder id: 0 none, 1 Creality, 2 Bambu, 3 key list, 4 Type 2, 5 Type 4, 6 Snapmaker |
 | 2 | 1 | flags: bit0 authenticated, bit1 NDEF found, bit2 truncated |
 | 3 | 1 | UID length (4, 7 or 10) |
 | 4 | 10 | UID, zero padded |
@@ -100,7 +114,7 @@ Payload (all multi-byte fields little-endian):
 | 41 | 2 | diameter × 100 mm (0 = unknown) |
 | 43 | 2 | min nozzle °C (0 = unknown) |
 | 45 | 2 | max nozzle °C (0 = unknown) |
-| 47 | 1 | vendor hint (QIDI = 1 for key-list entries tagged QIDI) |
+| 47 | 1 | vendor hint: 0 none, 1 QIDI, 2 OpenSpool, 3 OpenTag3D, 4 TigerTag, 5 Anycubic, 6 ELEGOO, 7 Snapmaker |
 | 48 | 1 | raw entry count `n` (≤ 6) |
 | 49 | 17·n | raw entries: block or first page, 16 bytes |
 
@@ -112,7 +126,7 @@ preload read for the slot.
 | File (git-ignored `cpp/board/k2cfs/local/`) | Made by | Enables |
 | --- | --- | --- |
 | `creality_keys.hpp` | `tools/re/extract_tag_keys.py IMAGE` (your stock image) | decoder 1 |
-| `vendor_keys.hpp` | you, from `vendor_keys.example.hpp` | decoder 2 (Bambu salt), decoder 3 (key list) |
+| `vendor_keys.hpp` | you, from `vendor_keys.example.hpp` | decoder 2 (Bambu salt), decoder 6 (Snapmaker salt), decoder 3 (key list) |
 
 The build detects each header with `__has_include`. CI builds without them and
 checks that the decoders compile in their disabled form.

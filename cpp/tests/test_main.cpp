@@ -1159,6 +1159,120 @@ void test_fuzz() {
     CHECK(encode_ok);
 }
 
+// ---- vendor tag formats from public specifications (docs/11) ----
+std::vector<uint8_t> pages(std::initializer_list<uint32_t> words) {  // big-endian page words
+    std::vector<uint8_t> m;
+    for (uint32_t w : words) {
+        m.push_back(static_cast<uint8_t>(w >> 24));
+        m.push_back(static_cast<uint8_t>(w >> 16));
+        m.push_back(static_cast<uint8_t>(w >> 8));
+        m.push_back(static_cast<uint8_t>(w));
+    }
+    return m;
+}
+
+void test_vendor_formats() {
+    using namespace cfs::tags;
+    // Anycubic v1, Pantone Spring Leaf PLA: pages 0x04..0x27 of the published dump.
+    {
+        const auto m = pages({0x7b006400, 0x48504c31, 0x392d3130, 0x32000000, 0, 0, 0, 0, 0, 0, 0,
+                              0x504c4100, 0, 0, 0, 0, 0xff4fa889, 0, 0, 0, 0xc800d200, 0, 0, 0, 0,
+                              0x32003c00, 0xaf004a01, 0xe8030000, 0, 0, 0, 0, 0, 0, 0, 0});
+        TagReadout r;
+        CHECK(parse_anycubic(m.data(), m.size(), r) && r.vendor_hint == kHintAnycubic);
+        CHECK(std::strncmp(r.material, "PLA", 4) == 0 && r.rgba == 0x89A84FFFu);
+        CHECK(r.nozzle_min_c == 200 && r.nozzle_max_c == 210);
+        CHECK(r.diameter_centi_mm == 175 && r.length_m == 330 && r.weight_g == 1000);
+    }
+    // Anycubic v2 HS PLA: three speed/temperature ranges, 190..240 °C overall.
+    {
+        const auto m = pages({0x7b006500, 0x4148504c, 0x5042572d, 0x31303200, 0, 0, 0x41430000, 0, 0, 0, 0,
+                              0x504c413f, 0x48696768, 0x3f537065, 0x65640000, 0, 0xff0006e1, 0, 0,
+                              0x32009600, 0xbe00d200, 0x96002c01, 0xd200e600, 0x2c015802, 0xe6000401,
+                              0x32003c00, 0xaf004a01, 0xe8030000, 0, 0, 0, 0, 0, 0, 0, 0});
+        TagReadout r;
+        CHECK(parse_anycubic(m.data(), m.size(), r));
+        CHECK(std::strncmp(r.material, "PLA?High?Speed", 15) == 0 && r.rgba == 0xE10600FFu);
+        CHECK(r.nozzle_min_c == 190 && r.nozzle_max_c == 260);  // 0x0104 = 260 in the dump's third range
+    }
+    // TigerTag example: Rosa3D red PLA (TigerTag-RFID-Guide section 4).
+    {
+        auto m = pages({0x5BF59264, 0xFFFFFFFF, 0x954B6800, 0x8E384E19, 0xFF0000FF, 0x0003E815,
+                        0x00C300E6, 0x3205323C, 0x2F7A0A5C, 0, 0, 0x00E60000});
+        m.resize(144, 0);
+        TagReadout r;
+        CHECK(parse_tigertag(m.data(), m.size(), r) && r.vendor_hint == kHintTigerTag);
+        CHECK(std::strncmp(r.material, "TT38219", 8) == 0 && r.rgba == 0xFF0000FFu);
+        CHECK(r.weight_g == 1000 && r.nozzle_min_c == 195 && r.nozzle_max_c == 230 && r.diameter_centi_mm == 175);
+        CHECK(!parse_anycubic(m.data(), m.size(), r) && !parse_elegoo(m.data(), m.size(), r));
+    }
+    // ELEGOO guide example: PLA-CF, red, 1.75 mm, 1000 g, February 2025.
+    {
+        auto m = std::vector<uint8_t>{0x36, 0xEE, 0xEE, 0xEE, 0xEE, 0x00, 0x01, 'P', 'L', 'A', ' ',
+                                      'C', 'F', '2', '0', 0xFF, 0x37, 0x00, 0x00, 0xAF, 0x03, 0xE8, 0x09, 0xC6};
+        m.resize(32, 0);
+        TagReadout r;
+        CHECK(parse_elegoo(m.data(), m.size(), r) && r.vendor_hint == kHintElegoo);
+        CHECK(std::strncmp(r.material, "PLA-CF20", 9) == 0 && r.rgba == 0xFF3700FFu);
+        CHECK(r.diameter_centi_mm == 175 && r.weight_g == 1000);
+    }
+    // OpenTag3D record after a URI record (the reader takes the first opentag3d one).
+    {
+        std::vector<uint8_t> payload(0xB8, 0);
+        payload[0] = 0x07;
+        payload[1] = 0xD3;  // version 2.003
+        std::memcpy(&payload[0x02], "PLA", 3);
+        std::memcpy(&payload[0x07], "Silk", 4);
+        payload[0x3C] = 0x11; payload[0x3D] = 0x22; payload[0x3E] = 0x33; payload[0x3F] = 0xFF;
+        payload[0x8C] = 0x06; payload[0x8D] = 0xD6;  // 1750 um
+        payload[0x91] = 38; payload[0x92] = 46;      // 190 / 230 °C
+        payload[0x9E] = 0x03; payload[0x9F] = 0xE8;  // 1000 g
+        payload[0xA2] = 0x01; payload[0xA3] = 0x4A;  // 330 m
+        const char mime[] = "application/opentag3d";
+        std::vector<uint8_t> msg = {0x91, 0x01, 0x04, 'U', 0x04, 'x', '.', 'y'};  // MB, SR, TNF 1, "U"
+        msg.push_back(0x52);  // ME, SR, TNF 2
+        msg.push_back(sizeof mime - 1);
+        msg.push_back(static_cast<uint8_t>(payload.size()));
+        msg.insert(msg.end(), mime, mime + sizeof mime - 1);
+        msg.insert(msg.end(), payload.begin(), payload.end());
+        TagReadout r;
+        CHECK(parse_ndef_message(msg.data(), msg.size(), r) && r.vendor_hint == kHintOpenTag3D);
+        CHECK(std::strncmp(r.material, "PLA Silk", 9) == 0 && r.rgba == 0x112233FFu);
+        CHECK(r.diameter_centi_mm == 175 && r.nozzle_min_c == 190 && r.nozzle_max_c == 230);
+        CHECK(r.weight_g == 1000 && r.length_m == 330);
+    }
+    // Snapmaker U1 with a dummy salt; sector keys checked with Python hmac/hashlib.
+    {
+        static const uint8_t salt[25] = {'T', 'e', 's', 't', 'S', 'a', 'l', 't', 'F', 'o', 'r', 'U', 'n',
+                                         'i', 't', 'T', 'e', 's', 't', 's', '_', '0', '1', '2', '3'};
+        const uint8_t uid[4] = {0x37, 0x10, 0x15, 0x73};
+        SnapmakerDecoder snap(salt, sizeof salt);
+        uint8_t k1[6], k2[6];
+        CHECK(snap.derive_key(uid, 1, k1) && snap.derive_key(uid, 2, k2));
+        const uint8_t k1_ref[6] = {0xAF, 0x94, 0x18, 0xA9, 0xE5, 0xBA};
+        const uint8_t k2_ref[6] = {0x8D, 0xD0, 0x8A, 0x77, 0xD7, 0xEC};
+        CHECK(std::memcmp(k1, k1_ref, 6) == 0 && std::memcmp(k2, k2_ref, 6) == 0);
+        FakeClassic t(uid);
+        std::memcpy(t.keys[1], k1, 6);
+        std::memcpy(t.keys[2], k2, 6);
+        const uint8_t b4[16] = {1, 0, 1, 0, 2, 0, 0, 0, 1, 0};  // version 1, PLA, Matte, tray 0, 1 color, alpha 0
+        const uint8_t b5[16] = {0xAA, 0xBB, 0xCC};
+        const uint8_t b8[16] = {0xAF, 0x00, 0xE8, 0x03, 0x4A, 0x01};  // 175, 1000 g, 330 m
+        const uint8_t b9[16] = {55, 0, 8, 0, 220, 0, 190, 0};
+        std::memcpy(t.blocks[4], b4, 16);
+        std::memcpy(t.blocks[5], b5, 16);
+        std::memcpy(t.blocks[8], b8, 16);
+        std::memcpy(t.blocks[9], b9, 16);
+        TagDecoder* const list[] = {&snap};
+        TagPipeline pipeline(list, 1);
+        TagReadout r;
+        CHECK(pipeline.read(t, r) && r.decoder == DecoderId::Snapmaker && r.vendor_hint == kHintSnapmaker);
+        CHECK(std::strncmp(r.material, "PLA Matte", 10) == 0 && r.rgba == 0xAABBCCFFu);
+        CHECK(r.diameter_centi_mm == 175 && r.weight_g == 1000 && r.length_m == 330);
+        CHECK(r.nozzle_min_c == 190 && r.nozzle_max_c == 220 && r.raw_count == 6);
+    }
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -1192,6 +1306,7 @@ int main() {
         {"preload_pause_and_forced", test_preload_pause_and_forced_preload},
         {"factory_modes_refused", test_factory_modes_refused},
         {"type4_ndef", test_type4_ndef},
+        {"vendor_formats", test_vendor_formats},
         {"fuzz", test_fuzz},
     };
     for (const Test& t : tests) {

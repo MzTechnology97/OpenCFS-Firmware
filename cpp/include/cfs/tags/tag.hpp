@@ -47,7 +47,13 @@ public:
     }
 };
 
-enum class DecoderId : uint8_t { None = 0, Creality = 1, Bambu = 2, KeyList = 3, Type2 = 4, Type4 = 5 };
+enum class DecoderId : uint8_t { None = 0, Creality = 1, Bambu = 2, KeyList = 3, Type2 = 4, Type4 = 5, Snapmaker = 6 };
+
+// TagReadout::vendor_hint / 0x60 offset 47: the format recognized on the tag.
+enum : uint8_t {
+    kHintNone = 0, kHintQidi = 1, kHintOpenSpool = 2, kHintOpenTag3D = 3, kHintTigerTag = 4,
+    kHintAnycubic = 5, kHintElegoo = 6, kHintSnapmaker = 7,
+};
 
 enum : uint8_t { kFlagAuthenticated = 1u << 0, kFlagNdef = 1u << 1, kFlagTruncated = 1u << 2 };
 

@@ -69,3 +69,12 @@ Subtract `0xD000` to get the real address.
   writer confirms the Key A derivation, the block encryption, the 48-character
   record layout and the weight-to-length codes. Its keys were compared with the
   extracted ones by SHA-256 fingerprint only.
+- Tag format specifications (read 2026-10-16), used for facts and published
+  examples only; no code copied, vendor secrets kept in the user's local header:
+  [SnapmakerResearchGroup/RFID](https://github.com/SnapmakerResearchGroup/RFID)
+  (MIT, data layout) with the KDF in
+  [proxmark3 `common/generator.c`](https://github.com/RfidResearchGroup/proxmark3) (GPL, facts only);
+  [TigerTag-RFID-Guide](https://github.com/TigerTag-Project/TigerTag-RFID-Guide) (CC-BY-4.0);
+  [anycubic-nfc-filament `format.md`](https://github.com/Molodos/anycubic-nfc-filament) (no licence);
+  [ELEGOO-RFID-Tag-Guide](https://github.com/elegooofficial/ELEGOO-RFID-Tag-Guide) (no licence);
+  [OpenTag3D](https://github.com/queengooborg/OpenTag3D) (GPL-3.0, `spec.json`).

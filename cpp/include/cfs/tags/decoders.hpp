@@ -40,16 +40,34 @@ private:
     size_t salt_len_;
 };
 
+// Snapmaker U1 MIFARE Classic 1K: sector Key A = HKDF-SHA256(salt, UID, "key_a_<n>", 6)
+// (proxmark3 mfc_algo_snapmaker_one); blocks 1,2 / 4,5,6 / 8,9,10 as the
+// SnapmakerResearchGroup parser reads them. The RSA signature is not checked.
+class SnapmakerDecoder : public TagDecoder {
+public:
+    SnapmakerDecoder(const uint8_t* salt, size_t salt_len) : salt_(salt), salt_len_(salt_len) {}
+    DecoderId id() const override { return DecoderId::Snapmaker; }
+    bool matches(const CardInfo& card) const override {
+        return salt_ && salt_len_ && card.classic_1k() && card.uid_len == 4;
+    }
+    bool read(TagSession& session, TagReadout& out) override;
+    bool derive_key(const uint8_t uid4[4], int sector, uint8_t key[6]) const;
+
+private:
+    const uint8_t* salt_;
+    size_t salt_len_;
+};
+
 // MIFARE Classic with user-configured keys (factory default, QIDI, ...): raw
 // blocks 4..6, plus a vendor hint for the host.
 struct KeyEntry {
     uint8_t key[6];
-    uint8_t vendor_hint;  // 0 generic, 1 QIDI
+    uint8_t vendor_hint;  // kHintNone or kHintQidi
 };
 
 class KeyListDecoder : public TagDecoder {
 public:
-    static constexpr uint8_t kHintQidi = 1;
+    static constexpr uint8_t kHintQidi = tags::kHintQidi;
     KeyListDecoder(const KeyEntry* entries, size_t count) : entries_(entries), count_(count) {}
     DecoderId id() const override { return DecoderId::KeyList; }
     bool matches(const CardInfo& card) const override { return count_ > 0 && card.classic(); }
@@ -60,8 +78,9 @@ private:
     size_t count_;
 };
 
-// NFC Type 2 (NTAG21x / Ultralight): user memory from page 4, NDEF TLV, OpenSpool
-// JSON fields. Also builds the stock 40-hex-character record of pages 4..8.
+// NFC Type 2 (NTAG21x / Ultralight): user memory from page 4. Recognizes TigerTag,
+// Anycubic and ELEGOO binary layouts, then NDEF (OpenSpool JSON, OpenTag3D).
+// Also builds the stock 40-hex-character record of pages 4..8.
 class Type2Decoder : public TagDecoder {
 public:
     static constexpr size_t kMaxBytes = 256;  // pages 4..67, room for OpenSpool JSON
@@ -74,7 +93,7 @@ public:
 // container and the NDEF file with READ BINARY. Read-only: no UPDATE BINARY.
 class Type4Decoder : public TagDecoder {
 public:
-    static constexpr size_t kMaxNdef = 192;
+    static constexpr size_t kMaxNdef = 256;
     static constexpr size_t kChunk = 48;  // fits the 64-byte reader FIFO with PCB, SW and CRC
     DecoderId id() const override { return DecoderId::Type4; }
     bool matches(const CardInfo& card) const override { return card.iso_dep(); }
@@ -89,8 +108,15 @@ private:
 // Helpers shared with tests.
 // Type 2 memory: TLVs, then the first NDEF message.
 bool parse_ndef_json(const uint8_t* mem, size_t len, TagReadout& out);
-// One NDEF message (Type 4 file content after NLEN): OpenSpool JSON fields.
+// One NDEF message (Type 4 file content after NLEN): every record is scanned for
+// OpenSpool JSON or OpenTag3D.
 bool parse_ndef_message(const uint8_t* msg, size_t len, TagReadout& out);
+// Binary layouts of user memory starting at page 4 (true when recognized).
+bool parse_tigertag(const uint8_t* mem, size_t len, TagReadout& out);
+bool parse_anycubic(const uint8_t* mem, size_t len, TagReadout& out);
+bool parse_elegoo(const uint8_t* mem, size_t len, TagReadout& out);
+// OpenTag3D record payload (application/opentag3d).
+bool parse_opentag3d(const uint8_t* payload, size_t len, TagReadout& out);
 bool json_string(const char* json, size_t len, const char* key, char* out, size_t out_len);
 
 }  // namespace cfs::tags

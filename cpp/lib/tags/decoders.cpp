@@ -3,6 +3,8 @@
 
 #include <cstring>
 
+#include <initializer_list>
+
 #include "cfs/creality_tag.hpp"
 #include "cfs/sha256.hpp"
 
@@ -10,6 +12,28 @@ namespace cfs::tags {
 
 namespace {
 uint16_t u16le(const uint8_t* p) { return static_cast<uint16_t>(p[0] | p[1] << 8); }
+uint16_t u16be(const uint8_t* p) { return static_cast<uint16_t>(p[0] << 8 | p[1]); }
+uint32_t u24be(const uint8_t* p) { return static_cast<uint32_t>(p[0]) << 16 | static_cast<uint32_t>(p[1]) << 8 | p[2]; }
+uint32_t u32be(const uint8_t* p) { return static_cast<uint32_t>(p[0]) << 24 | u24be(p + 1); }
+
+// Trimmed printable length of a fixed-size text field.
+size_t text_len(const uint8_t* p, size_t n) {
+    size_t len = 0;
+    for (size_t i = 0; i < n && p[i] >= 0x20 && p[i] < 0x7F; ++i) len = i + 1;
+    while (len && p[len - 1] == ' ') --len;
+    return len;
+}
+
+// material = a, or "a<sep>b" when b is not empty.
+void set_material2(TagReadout& out, const uint8_t* a, size_t na, const uint8_t* b, size_t nb, char sep) {
+    char buf[sizeof out.material];
+    size_t n = 0;
+    for (size_t i = 0, la = text_len(a, na); i < la && n < sizeof buf; ++i) buf[n++] = static_cast<char>(a[i]);
+    const size_t lb = text_len(b, nb);
+    if (lb && n < sizeof buf) buf[n++] = sep;
+    for (size_t i = 0; i < lb && n < sizeof buf; ++i) buf[n++] = static_cast<char>(b[i]);
+    out.set_material(buf, n);
+}
 
 int hex_nibble(char c) {
     if (c >= '0' && c <= '9') return c - '0';
@@ -118,6 +142,51 @@ bool BambuDecoder::read(TagSession& session, TagReadout& out) {
     return true;
 }
 
+// ---- Snapmaker U1 ---------------------------------------------------------------------
+bool SnapmakerDecoder::derive_key(const uint8_t uid4[4], int sector, uint8_t key[6]) const {
+    char info[12] = {'k', 'e', 'y', '_', 'a', '_'};
+    size_t n = 6;
+    if (sector >= 10) info[n++] = static_cast<char>('0' + sector / 10);
+    info[n++] = static_cast<char>('0' + sector % 10);
+    return sha256::hkdf(salt_, salt_len_, uid4, 4, reinterpret_cast<const uint8_t*>(info), n, key, 6);
+}
+
+bool SnapmakerDecoder::read(TagSession& session, TagReadout& out) {
+    static const uint8_t kBlocks[] = {4, 5, 6, 8, 9, 10};  // sector 0 (vendor names) is not needed
+    uint8_t data[sizeof kBlocks][16];
+    int authed = -1;
+    for (size_t i = 0; i < sizeof kBlocks; ++i) {
+        const int sector = kBlocks[i] / 4;
+        if (sector != authed) {
+            uint8_t key[6];
+            if (!derive_key(out.card.uid, sector, key) || !session.auth_a(kBlocks[i], key)) return false;
+            authed = sector;
+        }
+        if (!session.read16(kBlocks[i], data[i])) return false;
+    }
+    static const char* const kMain[] = {nullptr, "PLA", "PETG", "ABS", "TPU", "PVA"};
+    static const char* const kSub[] = {nullptr, "Basic", "Matte", "SnapSpeed"};
+    const uint8_t* b4 = data[0];
+    const unsigned main_type = u16le(b4 + 2), sub_type = u16le(b4 + 4);
+    if (main_type == 0 || main_type > 5 || sub_type == 0 || sub_type > 3) return false;  // as the reference parser
+    out.flags |= kFlagAuthenticated;
+    out.vendor_hint = kHintSnapmaker;
+    for (size_t i = 0; i < sizeof kBlocks; ++i) out.add_raw(kBlocks[i], data[i]);
+    set_material2(out, reinterpret_cast<const uint8_t*>(kMain[main_type]), std::strlen(kMain[main_type]),
+                  reinterpret_cast<const uint8_t*>(kSub[sub_type]), std::strlen(kSub[sub_type]), ' ');
+    const uint8_t* b5 = data[1];
+    out.rgba = static_cast<uint32_t>(b5[0]) << 24 | static_cast<uint32_t>(b5[1]) << 16 |
+               static_cast<uint32_t>(b5[2]) << 8 | static_cast<uint8_t>(0xFF - b4[9]);
+    const uint8_t* b8 = data[3];
+    const uint8_t* b9 = data[4];
+    out.diameter_centi_mm = u16le(b8);  // unit not documented [?]
+    out.weight_g = u16le(b8 + 2);
+    out.length_m = u16le(b8 + 4);
+    out.nozzle_max_c = u16le(b9 + 4);
+    out.nozzle_min_c = u16le(b9 + 6);
+    return true;
+}
+
 // ---- configured key list ---------------------------------------------------------------
 bool KeyListDecoder::read(TagSession& session, TagReadout& out) {
     for (size_t e = 0; e < count_; ++e) {
@@ -158,38 +227,136 @@ bool json_string(const char* json, size_t len, const char* key, char* out, size_
 }
 
 bool parse_ndef_message(const uint8_t* r, size_t l, TagReadout& out) {
-    // First NDEF record only: header, type length, payload length, [id length].
-    if (l < 3) return false;
-    const uint8_t hdr = r[0];
-    const bool sr = hdr & 0x10, il = hdr & 0x08;
-    const uint8_t tnf = hdr & 0x07;
-    size_t q = 1;
-    const size_t type_len = r[q++];
-    size_t payload_len;
-    if (sr) {
-        payload_len = r[q++];
-    } else {
-        if (q + 4 > l) return false;
-        payload_len = static_cast<size_t>(r[q]) << 24 | static_cast<size_t>(r[q + 1]) << 16 |
-                      static_cast<size_t>(r[q + 2]) << 8 | r[q + 3];
-        q += 4;
-    }
-    const size_t id_len = il ? r[q++] : 0;
-    const char* type = reinterpret_cast<const char*>(r + q);
-    q += type_len + id_len;
-    if (q > l) return false;
-    if (payload_len > l - q) {
-        out.flags |= kFlagTruncated;
-        payload_len = l - q;
-    }
     static const char kJson[] = "application/json";
-    if (tnf != 0x02 || type_len != sizeof kJson - 1 || std::strncmp(type, kJson, type_len) != 0) return true;
-    const char* json = reinterpret_cast<const char*>(r + q);
-    char v[24];
-    if (json_string(json, payload_len, "type", v, sizeof v)) out.set_material(v, std::strlen(v));
-    if (json_string(json, payload_len, "color_hex", v, sizeof v)) parse_rgb(v, std::strlen(v), out.rgba);
-    if (json_string(json, payload_len, "min_temp", v, sizeof v)) out.nozzle_min_c = parse_uint(v, std::strlen(v));
-    if (json_string(json, payload_len, "max_temp", v, sizeof v)) out.nozzle_max_c = parse_uint(v, std::strlen(v));
+    static const char kOt3d[] = "application/opentag3d";
+    size_t q = 0;
+    while (q + 3 <= l) {  // every record: header, type length, payload length, [id length]
+        const uint8_t hdr = r[q++];
+        const bool sr = hdr & 0x10, il = hdr & 0x08, me = hdr & 0x40;
+        const uint8_t tnf = hdr & 0x07;
+        const size_t type_len = r[q++];
+        size_t payload_len;
+        if (sr) {
+            payload_len = r[q++];
+        } else {
+            if (q + 4 > l) return false;
+            payload_len = static_cast<size_t>(r[q]) << 24 | static_cast<size_t>(r[q + 1]) << 16 |
+                          static_cast<size_t>(r[q + 2]) << 8 | r[q + 3];
+            q += 4;
+        }
+        size_t id_len = 0;
+        if (il) {
+            if (q >= l) return false;
+            id_len = r[q++];
+        }
+        if (q + type_len + id_len > l) return false;
+        const char* type = reinterpret_cast<const char*>(r + q);
+        q += type_len + id_len;
+        if (payload_len > l - q) {
+            out.flags |= kFlagTruncated;
+            payload_len = l - q;
+        }
+        const uint8_t* payload = r + q;
+        if (tnf == 0x02 && type_len == sizeof kJson - 1 && std::strncmp(type, kJson, type_len) == 0) {
+            const char* json = reinterpret_cast<const char*>(payload);
+            char v[24];
+            if (json_string(json, payload_len, "type", v, sizeof v)) out.set_material(v, std::strlen(v));
+            if (json_string(json, payload_len, "color_hex", v, sizeof v)) parse_rgb(v, std::strlen(v), out.rgba);
+            if (json_string(json, payload_len, "min_temp", v, sizeof v)) out.nozzle_min_c = parse_uint(v, std::strlen(v));
+            if (json_string(json, payload_len, "max_temp", v, sizeof v)) out.nozzle_max_c = parse_uint(v, std::strlen(v));
+            out.vendor_hint = kHintOpenSpool;
+            return true;
+        }
+        if (tnf == 0x02 && type_len == sizeof kOt3d - 1 && std::strncmp(type, kOt3d, type_len) == 0) {
+            return parse_opentag3d(payload, payload_len, out);
+        }
+        q += payload_len;
+        if (me) break;
+    }
+    return false;
+}
+
+// OpenTag3D core fields (spec v2, big endian, missing bytes read as 0).
+bool parse_opentag3d(const uint8_t* payload, size_t len, TagReadout& out) {
+    uint8_t p[0xE0] = {};
+    for (size_t i = 0; i < len && i < sizeof p; ++i) p[i] = payload[i];
+    set_material2(out, p + 0x02, 5, p + 0x07, 5, ' ');
+    out.rgba = u32be(p + 0x3C);
+    out.diameter_centi_mm = static_cast<uint16_t>(u16be(p + 0x8C) / 10);  // um -> 1/100 mm
+    out.nozzle_min_c = static_cast<uint16_t>(p[0x91] * 5);
+    out.nozzle_max_c = static_cast<uint16_t>(p[0x92] * 5);
+    out.weight_g = u16be(p + 0x9E);
+    out.length_m = u16be(p + 0xA2);
+    out.vendor_hint = kHintOpenTag3D;
+    return true;
+}
+
+// TigerTag (TigerTag-RFID-Guide section 2, big endian, offsets from page 4).
+bool parse_tigertag(const uint8_t* m, size_t len, TagReadout& out) {
+    if (len < 80) return false;
+    const uint32_t id = u32be(m);
+    constexpr uint32_t kTigerTag = 0x5BF59264, kTigerTagPlus = 0xBC0FCB97, kTigerTagInit = 0x6C41A2E1;
+    if (id != kTigerTag && id != kTigerTagPlus && id != kTigerTagInit) return false;
+    out.vendor_hint = kHintTigerTag;
+    if (id == kTigerTagInit) return true;  // initialized but blank
+    // The host maps the material ID to a name (database/id_material.json).
+    char mat[16] = {'T', 'T'};
+    size_t n = 2;
+    char digits[6];
+    size_t d = 0;
+    unsigned v = u16be(m + 8);
+    do {
+        digits[d++] = static_cast<char>('0' + v % 10);
+        v /= 10;
+    } while (v && d < sizeof digits);
+    while (d) mat[n++] = digits[--d];
+    out.set_material(mat, n);
+    if (m[13] == 0x38) out.diameter_centi_mm = 175;
+    if (m[13] == 0xDD) out.diameter_centi_mm = 285;
+    out.rgba = u32be(m + 16);
+    const uint32_t measure = u24be(m + 20);
+    switch (m[23]) {  // database/id_measure_unit.json
+    case 21: out.weight_g = static_cast<uint16_t>(measure); break;         // g
+    case 35: out.weight_g = static_cast<uint16_t>(measure * 1000); break;  // kg
+    case 149: out.length_m = static_cast<uint16_t>(measure); break;        // m
+    case 130: out.length_m = static_cast<uint16_t>(measure / 100); break;  // cm
+    default: break;
+    }
+    out.nozzle_min_c = u16be(m + 24);
+    out.nozzle_max_c = u16be(m + 26);
+    return true;
+}
+
+// Anycubic ACE Pro (anycubic-nfc-filament format.md): magic 0x7B, version 0x64/0x65,
+// little-endian values, offsets from page 4.
+bool parse_anycubic(const uint8_t* m, size_t len, TagReadout& out) {
+    if (len < 112 || m[0] != 0x7B || (m[2] != 0x64 && m[2] != 0x65)) return false;
+    out.vendor_hint = kHintAnycubic;
+    out.set_material(reinterpret_cast<const char*>(m + 44), text_len(m + 44, 20));  // page 0x0F
+    out.rgba = static_cast<uint32_t>(m[67]) << 24 | static_cast<uint32_t>(m[66]) << 16 |
+               static_cast<uint32_t>(m[65]) << 8 | m[64];  // page 0x14: A B G R
+    out.nozzle_min_c = u16le(m + 80);                       // page 0x18
+    uint16_t max = u16le(m + 82);
+    for (size_t off : {static_cast<size_t>(90), static_cast<size_t>(98)}) {  // HS ranges 2 and 3
+        const uint16_t v = u16le(m + off);
+        if (v > max) max = v;
+    }
+    out.nozzle_max_c = max;
+    out.diameter_centi_mm = u16le(m + 104);  // page 0x1E
+    out.length_m = u16le(m + 106);
+    out.weight_g = u16le(m + 108);           // page 0x1F
+    return true;
+}
+
+// ELEGOO (ELEGOO-RFID-Tag-Guide): packed big-endian EPC-256 from page 4, header
+// 0x36 and manufacturer EEEEEEEE. Not checked against a real tag.
+bool parse_elegoo(const uint8_t* m, size_t len, TagReadout& out) {
+    if (len < 32 || m[0] != 0x36 || m[1] != 0xEE || m[2] != 0xEE || m[3] != 0xEE || m[4] != 0xEE) return false;
+    out.vendor_hint = kHintElegoo;
+    set_material2(out, m + 7, 4, m + 11, 4, '-');
+    out.rgba = u24be(m + 15) << 8 | 0xFF;
+    out.diameter_centi_mm = u16be(m + 18);
+    out.weight_g = u16be(m + 20);
     return true;
 }
 
@@ -263,7 +430,9 @@ bool Type2Decoder::read(TagSession& session, TagReadout& out) {
         out.creality.text[2 * i + 1] = kHex[mem[i] & 0x0F];
     }
     out.has_creality = true;
-    parse_ndef_json(mem, got, out);
+    if (!parse_tigertag(mem, got, out) && !parse_anycubic(mem, got, out) && !parse_elegoo(mem, got, out)) {
+        parse_ndef_json(mem, got, out);
+    }
     return true;
 }
 

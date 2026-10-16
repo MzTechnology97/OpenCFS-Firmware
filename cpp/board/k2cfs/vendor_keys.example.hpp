@@ -15,6 +15,11 @@ namespace cfs::board::local {
 constexpr bool kHaveBambuSalt = false;
 constexpr uint8_t kBambuSalt[16] = {};
 
+// Snapmaker U1: the HKDF-SHA256 salt of the per-sector Key A derivation
+// (25 ASCII bytes, no terminator; docs/spec/11 section 4).
+constexpr bool kHaveSnapmakerSalt = false;
+constexpr uint8_t kSnapmakerSalt[25] = {};
+
 // MIFARE Classic keys tried in order on tags no other decoder read. The
 // factory-default transport key (also used by QIDI Box tags) is the usual entry.
 constexpr tags::KeyEntry kKeyList[] = {
