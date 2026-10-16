@@ -34,7 +34,8 @@ code. How it was produced, honestly stated:
 | `tags/tag.*`, `tags/decoders.*` | read-only multi-vendor tag pipeline: Creality, Bambu, configured MIFARE keys (QIDI), NFC Type 2 / NDEF (OpenSpool), per-UID routing, command `0x60` payload (`docs/spec/11`) |
 | `board/k2cfs/` | GD32F303 board port: own register map, GPIO/PWM/USART/ADC/SPI/soft-I2C, and HAL drivers (GPIO feeders with the ripple stall detector, hub speed PID with blocked/overload, sensors, MT6826S with the stock framing, AHT30, LEDs, RS-485, stock-compatible flash parameter page, TM1621B front display, read-only 24C16 EEPROM (production serial number), hardware-version straps, FM17622 read-only RFID driver as a tag session, `vendor_decoders.hpp` building the decoders from git-ignored `local/creality_keys.hpp` (`tools/re/extract_tag_keys.py`, from your own firmware image) and `local/vendor_keys.hpp` (from `vendor_keys.example.hpp`)). Compiled as objects only. |
 | `sim/` | deterministic filament-path simulator implementing the HAL |
-| `tests/` | host tests (97 checks) |
+| `tests/` | host tests and deterministic fuzzing (269 checks); `kalico_conformance.py` drives OpenCFS with the real Kalico host modules (`docs/spec/14`) |
+| `tools/host_bridge.cpp` | `cfs_host_bridge`: OpenCFS on the simulator behind a line-based frame interface, for host-code conformance tests |
 
 The library uses no heap and no exceptions. Blocking operations call
 `Clock::sleep_ms`, which the simulator turns into physics steps and an RTOS port

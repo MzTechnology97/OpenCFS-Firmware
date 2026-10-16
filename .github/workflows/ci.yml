@@ -66,8 +66,17 @@ jobs:
           cmake -S cpp -B build-cpp -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           cmake --build build-cpp --parallel 2
-      - name: Run host simulation tests
+      - name: Run host simulation tests (includes deterministic fuzzing)
         run: ctest --test-dir build-cpp --output-on-failure
+      - name: Conformance with the real Kalico host code (box_protocol, serial_485, box_cfs_runtime)
+        run: |
+          git clone --depth 1 --branch k2-pro-openhost https://github.com/MzTechnology97/kalico-k2pro /tmp/kalico
+          python3 cpp/tests/kalico_conformance.py --bridge build-cpp/cfs_host_bridge --extras /tmp/kalico/klippy/extras
+      - name: Static analysis (cppcheck, non-blocking until tuned)
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y --no-install-recommends cppcheck
+          cppcheck --std=c++17 --enable=warning,performance,portability --inline-suppr --error-exitcode=1 -Icpp/include -Icpp/board/k2cfs cpp/lib cpp/board/k2cfs
       - name: Install ARM Cortex-M4 C++ compiler
         run: |
           sudo apt-get update -qq

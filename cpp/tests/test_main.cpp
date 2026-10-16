@@ -1094,6 +1094,71 @@ void test_type4_ndef() {
     CHECK(r.nozzle_min_c == 200 && r.nozzle_max_c == 220 && !r.has_creality);
 }
 
+// Deterministic fuzzing (run under ASan/UBSan in CI): random bytes into the frame
+// receiver, the dispatcher (commands that cannot start motion, plus unknown
+// codes), the NDEF/JSON parsers, the parameter page codec and the 0x60 encoder.
+struct XorShift {
+    uint32_t s = 0x9E3779B9u;
+    uint32_t next() {
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        return s;
+    }
+    uint8_t byte() { return static_cast<uint8_t>(next()); }
+};
+
+void test_fuzz() {
+    XorShift rng;
+    // Raw byte noise into a receiver: never a crash, frames only with a valid CRC.
+    cfs::Receiver rx(1);
+    cfs::Frame f;
+    int frames = 0;
+    for (int i = 0; i < 200000; ++i) {
+        if (rx.push(rng.byte(), static_cast<uint32_t>(i / 10), f) == cfs::Receiver::Result::Frame) ++frames;
+    }
+    CHECK(frames >= 0);
+
+    // Valid frames with random payloads through the dispatcher.
+    static const uint8_t kCmds[] = {0x01, 0x02, 0x03, 0x05, 0x0A, 0x0C, 0x0F, 0x14, 0x15, 0x30, 0x51,
+                                    0x52, 0x53, 0x55, 0x57, 0x5B, 0x5D, 0x60, 0x20, 0x2F, 0x61, 0x99};
+    Rig rig;
+    int replies = 0;
+    for (int i = 0; i < 4000; ++i) {
+        const uint8_t cmd = kCmds[rng.next() % sizeof kCmds];
+        std::vector<uint8_t> payload(rng.next() % 24);
+        for (auto& b : payload) b = rng.byte();
+        if (cmd == 0x57 && !payload.empty() && (payload[0] == 0x12 || payload[0] == 0x13)) payload[0] = 0x11;
+        if (cmd == 0x0F && !payload.empty()) payload[0] &= 1;  // keep the preload enabled
+        replies += rig.request(cmd, payload).empty() ? 0 : 1;
+    }
+    CHECK(replies > 0 && rig.box.state() != BoxState::Error);
+
+    // Parsers with random memory.
+    bool encode_ok = true;
+    for (int i = 0; i < 20000; ++i) {
+        uint8_t mem[160];
+        const size_t n = rng.next() % sizeof mem;
+        for (size_t k = 0; k < n; ++k) mem[k] = rng.byte();
+        if (n > 2 && (rng.next() & 1)) mem[0] = 0x03;  // often an NDEF TLV
+        if (n > 4 && (rng.next() & 1)) mem[2] = 0xD2;  // often a MIME record
+        cfs::tags::TagReadout r;
+        cfs::tags::parse_ndef_json(mem, n, r);
+        cfs::tags::parse_ndef_message(mem, n, r);
+        char out[24];
+        cfs::tags::json_string(reinterpret_cast<const char*>(mem), n, "type", out, sizeof out);
+        uint8_t page[cfs::params::kRecordSize];
+        for (auto& b : page) b = rng.byte();
+        cfs::params::Record rec;
+        cfs::params::load(page, cfs::params::kStockVersion, rec);
+        r.raw_count = static_cast<uint8_t>(rng.next() % (cfs::tags::TagReadout::kMaxRaw + 1));
+        r.card.uid_len = static_cast<uint8_t>(rng.next() % 11);
+        uint8_t v[cfs::kMaxPayload];
+        encode_ok = encode_ok && cfs::tags::encode_tag_info(1, r, v, sizeof v) <= sizeof v;
+    }
+    CHECK(encode_ok);
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -1127,6 +1192,7 @@ int main() {
         {"preload_pause_and_forced", test_preload_pause_and_forced_preload},
         {"factory_modes_refused", test_factory_modes_refused},
         {"type4_ndef", test_type4_ndef},
+        {"fuzz", test_fuzz},
     };
     for (const Test& t : tests) {
         const int before = g_failed;

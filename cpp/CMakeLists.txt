@@ -60,4 +60,7 @@ if(CFS_BUILD_TESTS)
     add_executable(cfs_tests tests/test_main.cpp)
     target_link_libraries(cfs_tests PRIVATE cfs_sim)
     add_test(NAME cfs_tests COMMAND cfs_tests)
+    # Frame bridge for conformance tests against host code (docs/spec/14).
+    add_executable(cfs_host_bridge tools/host_bridge.cpp)
+    target_link_libraries(cfs_host_bridge PRIVATE cfs_sim)
 endif()
