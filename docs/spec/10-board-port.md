@@ -34,16 +34,34 @@ Evidence:
 
 ### Slot feeders (AT8236, brushed)
 
-| Slot | IN1 | IN2 | Drive | Current sense |
-| --- | --- | --- | --- | --- |
-| A | PD3 (`0x33`) | PD2 (`0x32`) | GPIO on/off (no PWM device) [code] | PC5 / ADC_IN15 [pcb][str] |
-| B | PD1 (`0x31`) | PD0 (`0x30`) | GPIO on/off [code] | **PC0 / ADC_IN10**: the motor record uses channel 10 [code][pcb]. The factory-test string `PC1` is a typo |
-| C | PD15 (`pwm5`) | PD14 (`pwm8`) | TIMER3 CH3 / CH2, TIMER3 remap (AFIO_PCF0 bit 12) [code] | PA1 / ADC_IN1 [pcb][str] |
-| D | PD13 (`pwm4`) | PD12 (`pwm3`) | TIMER3 CH1 / CH0 [code] | PA0 / ADC_IN0 [pcb][str] |
+Columns follow the motor-record byte order (+4, +5). Which input is electrical
+IN1 is not verified on the PCB.
 
-PWM: 50 kHz (period 20 µs). The driving scheme is described in `06-motors-sensors.md` §1.
-Current sense: ADC0, 12 bit, 3.3 V reference. Each channel is sampled one-shot
-(enable, read, disable) every 20 ms by the feeder monitor (`0x0800FC80`) [code].
+| Slot | Input +4 | Input +5 | Drive | Current sense |
+| --- | --- | --- | --- | --- |
+| A | PD2 (`0x32`) | PD3 (`0x33`) | GPIO on/off [code] | PC5 / ADC_IN15 [code][pcb] |
+| B | PD0 (`0x30`) | PD1 (`0x31`) | GPIO on/off [code] | **PC0 / ADC_IN10** [code][pcb]. The factory-test string `PC1` is a typo (PC1 is the LCD CS) |
+| C | PD14 (`0x3E`) | PD15 (`0x3F`) | GPIO on/off [code] | PA1 / ADC_IN1 [code][pcb] |
+| D | PD12 (`0x3C`) | PD13 (`0x3D`) | GPIO on/off [code] | PA0 / ADC_IN0 [code][pcb] |
+
+Drive: direction 0 → +4 high / +5 low, direction 1 → the opposite, stop → both
+high (brake); see `06-motors-sensors.md` §1. The BSP registers PWM devices `pwm3`,
+`pwm4`, `pwm5`, `pwm8` on PD12, PD13, PD15, PD14 (TIMER3 CH0, CH1, CH3, CH2,
+driver table in initialized SRAM at `0x20000810`…`0x20000930`), but no motor record
+and no code references them. The feeders do not use PWM in this build.
+
+Current sense: device `adc1` = **ADC1** (`0x40012800`, RCU APB2EN bit 10), 12 bit,
+3.3 V reference. The BSP ADC table at `0x0802AC6C` holds entries of
+`{peripheral, RCU bit, 16 channel pins, device, name}` for `adc0` (ADC0), `adc1`
+(ADC1) and `adc2` (ADC2); its channel-pin list maps ch 10 to `0x20` = PC0. Each
+channel is sampled one-shot (enable, read, disable) every 20 ms by the feeder
+monitor (`0x0800FC80`) [code].
+
+**Motion state is not a safe-idle proof.** `BOX_STATE = IDLE` can coexist with
+feeder or hub motion, `blocked` means "commanded but no ripple / no FG", and zero
+FG pulses do not prove the hub is de-energized. A release build has to establish
+"motors off" from the commanded outputs themselves (feeder input levels, hub PWM,
+brake), not from the reported state. Object-only CI cannot qualify this.
 
 ### Hub (BLDC, MS3791)
 

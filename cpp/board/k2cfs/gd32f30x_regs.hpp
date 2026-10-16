@@ -16,7 +16,7 @@ inline volatile uint32_t& reg(uint32_t addr) {
 constexpr uint32_t AFIO = 0x40010000, EXTI = 0x40010400;
 constexpr uint32_t GPIOA = 0x40010800, GPIOB = 0x40010C00, GPIOC = 0x40011000,
                    GPIOD = 0x40011400, GPIOE = 0x40011800;
-constexpr uint32_t ADC0 = 0x40012400, TIMER0 = 0x40012C00, TIMER3 = 0x40000800;
+constexpr uint32_t ADC0 = 0x40012400, ADC1 = 0x40012800, TIMER0 = 0x40012C00;
 constexpr uint32_t SPI1 = 0x40003800, USART1 = 0x40004400;
 constexpr uint32_t RCU = 0x40021000;
 constexpr uint32_t SYSTICK = 0xE000E010, NVIC_ISER = 0xE000E100;
@@ -26,8 +26,8 @@ constexpr uint32_t RCU_CFG0 = RCU + 0x04, RCU_APB2EN = RCU + 0x18, RCU_APB1EN = 
 constexpr uint32_t RCU_CFG0_ADCPSC_MASK = (3u << 14) | (1u << 28), RCU_CFG0_ADCPSC_DIV6 = 2u << 14;
 enum : uint32_t {
     APB2_AF = 1u << 0, APB2_PA = 1u << 2, APB2_PB = 1u << 3, APB2_PC = 1u << 4,
-    APB2_PD = 1u << 5, APB2_PE = 1u << 6, APB2_ADC0 = 1u << 9, APB2_TIMER0 = 1u << 11,
-    APB1_TIMER3 = 1u << 2, APB1_SPI1 = 1u << 14, APB1_USART1 = 1u << 17,
+    APB2_PD = 1u << 5, APB2_PE = 1u << 6, APB2_ADC0 = 1u << 9, APB2_ADC1 = 1u << 10, APB2_TIMER0 = 1u << 11,
+    APB1_SPI1 = 1u << 14, APB1_USART1 = 1u << 17,
 };
 
 // ---- GPIO (CTL0 pins 0..7, CTL1 pins 8..15, 4 bits per pin) ---------------
@@ -43,7 +43,7 @@ enum class PinMode : uint32_t {
 };
 constexpr uint32_t AFIO_PCF0 = AFIO + 0x04;
 constexpr uint32_t AFIO_EXTISS0 = AFIO + 0x08;  // EXTISS0..3, 4 bits per line
-constexpr uint32_t PCF0_TIMER0_FULL_REMAP = 3u << 6, PCF0_TIMER3_REMAP = 1u << 12;
+constexpr uint32_t PCF0_TIMER0_FULL_REMAP = 3u << 6;
 
 // ---- EXTI ------------------------------------------------------------------
 constexpr uint32_t EXTI_INTEN = EXTI + 0x00, EXTI_RTEN = EXTI + 0x08, EXTI_FTEN = EXTI + 0x0C,

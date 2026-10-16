@@ -29,9 +29,11 @@ constexpr Pin P(char port, uint8_t pin) { return Pin{static_cast<uint8_t>((port 
 namespace pins {
 // RS-485 (USART1).
 constexpr Pin kRs485Tx = P('A', 2), kRs485Rx = P('A', 3);
-// Feeders: IN1, IN2 per slot A..D.
-constexpr Pin kFeederIn1[4] = {P('D', 3), P('D', 1), P('D', 15), P('D', 13)};
-constexpr Pin kFeederIn2[4] = {P('D', 2), P('D', 0), P('D', 14), P('D', 12)};
+// Feeders: the two AT8236 inputs per slot A..D, in motor-record order (bytes +4, +5
+// of the record at 0x20000270 + i*0xAC). Which one is electrical IN1 on the PCB
+// is not verified.
+constexpr Pin kFeederIn1[4] = {P('D', 2), P('D', 0), P('D', 14), P('D', 12)};
+constexpr Pin kFeederIn2[4] = {P('D', 3), P('D', 1), P('D', 15), P('D', 13)};
 constexpr uint8_t kFeederAdcChannel[4] = {15, 10, 1, 0};
 constexpr Pin kFeederAdcPin[4] = {P('C', 5), P('C', 0), P('A', 1), P('A', 0)};
 // Hub.
@@ -69,7 +71,7 @@ inline bool pin_read(Pin p) { return (gd32::reg(p.port() + gd32::GPIO_ISTAT) & p
 // ---- busy-wait microsecond delay (SysTick must run at HCLK) --------------------
 void delay_us(uint32_t us);
 
-// ---- PWM on TIMER0 / TIMER3 ------------------------------------------------------
+// ---- PWM on TIMER0 (hub) ---------------------------------------------------------
 class PwmTimer {
 public:
     PwmTimer(uint32_t base, bool advanced) : base_(base), advanced_(advanced) {}
@@ -102,16 +104,17 @@ private:
     volatile uint16_t tail_ = 0;
 };
 
-// ---- ADC0 one-shot conversions -------------------------------------------------------
+// ---- ADC one-shot conversions -------------------------------------------------------
 class Adc {
 public:
-    explicit Adc(uint32_t base) : base_(base) {}
+    Adc(uint32_t base, uint32_t apb2_enable) : base_(base), enable_(apb2_enable) {}
     void init();
     uint16_t read(uint8_t channel);  // 12-bit result
     static float volts(uint16_t raw) { return raw * 3.3f / 4096.0f; }
 
 private:
     uint32_t base_;
+    uint32_t enable_;
 };
 
 // ---- SPI1 master (mode 3, 8 bit) -------------------------------------------------------

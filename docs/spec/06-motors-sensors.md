@@ -4,25 +4,33 @@ Behavioral specification of the actuator and sensor drivers in `cfs0_000_153`.
 
 ## 1. Slot feeder motors (4 × brushed DC, AT8236)
 
-Each motor has a record (`0x20000270 + i*0xAC`, [res PR #29]) with two driver
-inputs, a PWM channel per input, the last command, the direction and a monitor timer.
+Each motor has a record (`0x20000270 + i*0xAC`, [res PR #29]): a PWM flag (+0),
+two driver input pins (+4, +5), optional PWM device names and channels (+8/+0xC,
++0x14/+0x18), the ADC device name and channel (+0x20/+0x24), the last speed (+0xA8),
+the direction (+0xAA) and a monitor timer.
 
-| Slot | IN1 | IN2 | Current sense |
-| --- | --- | --- | --- |
-| A | PD2 | PD3 | PC5 |
-| B | PD0 | PD1 | PC1 |
-| C | PD14 | PD15 | PA1 |
-| D | PD12 | PD13 | PA0 |
+The scatter-loaded records (identical in 1.5.3 stock and v3.22) are [code]:
 
-**Drive (`feeder_run(slot, dir, speed)`)**
-- PWM period 20 µs (50 kHz).
-- One input carries PWM with low time `20000 − speed·20000/255` ns (so speed 255 =
-  fully on); the other input stays fully on.
-- The direction selects which input carries the PWM. This is slow-decay drive,
-  with braking between pulses.
-- Records configured without PWM use plain GPIO on/off.
+| Slot | Input +4 | Input +5 | PWM flag / devices | Current sense |
+| --- | --- | --- | --- | --- |
+| A | PD2 (`0x32`) | PD3 (`0x33`) | 0 / none | `adc1` ch 15 = PC5 |
+| B | PD0 (`0x30`) | PD1 (`0x31`) | 0 / none | `adc1` ch 10 = PC0 |
+| C | PD14 (`0x3E`) | PD15 (`0x3F`) | 0 / none | `adc1` ch 1 = PA1 |
+| D | PD12 (`0x3C`) | PD13 (`0x3D`) | 0 / none | `adc1` ch 0 = PA0 |
+
+No code writes the PWM flag or the device names after start-up, so **all four
+feeders are driven on/off by GPIO**. Which input is electrical IN1 on the AT8236,
+and which way the spool turns for direction 0, is not established from the
+firmware. Check it on the PCB before any feeder movement.
+
+**Drive (`feeder_run(slot, dir, speed)`, `0x08010054`)**
+- GPIO records (the only ones used): direction 0 → input +4 high, input +5 low;
+  direction ≠ 0 → input +4 low, input +5 high. Any non-zero speed is full on.
 - `speed = 0` stops: both inputs high (brake), the monitor timer stops, and the
   per-motor filters and state are cleared.
+- The function also has a PWM branch (period 20 µs / 50 kHz, low time
+  `20000 − speed·20000/255` ns on one input, the other fully on). Records select it
+  only through the PWM flag, which is never set, so it is dead code in this build.
 - Starting a motor arms its monitor timer (current/voltage sampling, see §4).
   Direction and speed are remembered per slot.
 - `feeder_run_pulse(slot, dir)`: wait 200 ms, run at full speed for 30 ms, stop.
@@ -31,7 +39,7 @@ inputs, a PWM channel per input, the last command, the direction and a monitor t
 **Current monitor (per feeder, RT timer every 20 ms while the motor runs)** [code]
 
 1. Sample the motor's current-sense ADC with the scheduler locked:
-   `V = raw × 3.3 / 4096` (ADC0, 12 bit). Slot A uses channel 15, B 10, C 1, D 0.
+   `V = raw × 3.3 / 4096` (device `adc1` = ADC1, 12 bit). Slot A uses channel 15, B 10, C 1, D 0.
 2. Keep the last 5 samples, a 100 ms window.
 3. **Blocked:** max − min of the window **< 0.05 V**. A running brushed motor shows
    commutation ripple, a stalled one does not. This is the per-feeder `blocked`

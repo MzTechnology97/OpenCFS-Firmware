@@ -24,11 +24,11 @@ private:
     volatile uint32_t ms_ = 0;
 };
 
-// Four AT8236 feeders: A/B on GPIO, C/D on TIMER3 PWM (50 kHz), with the
-// stock current-ripple stall detector (docs/spec/06 section 1).
+// Four AT8236 feeders driven on/off by GPIO like stock (every motor record has
+// no PWM device), with the stock current-ripple stall detector (docs/spec/06 section 1).
 class Feeders : public FeederDriver {
 public:
-    Feeders(PwmTimer& tim3, Adc& adc) : tim_(tim3), adc_(adc) {}
+    explicit Feeders(Adc& adc) : adc_(adc) {}
     void init();
     void run(int slot, Dir dir, uint8_t speed) override;
     void stop(int slot) override;
@@ -37,9 +37,6 @@ public:
     float last_volts(int slot) const { return avg_[slot]; }
 
 private:
-    void drive(int slot, bool in1_pwm, uint16_t pwm_compare, bool in1_level, bool in2_level);
-
-    PwmTimer& tim_;
     Adc& adc_;
     bool running_[4] = {};
     bool blocked_[4] = {};
@@ -195,13 +192,12 @@ public:
 
 private:
     PwmTimer tim0_{gd32::TIMER0, true};
-    PwmTimer tim3_{gd32::TIMER3, false};
-    Adc adc_{gd32::ADC0};
+    Adc adc_{gd32::ADC1, gd32::APB2_ADC1};  // stock device "adc1" = ADC1
     Spi spi_{gd32::SPI1};
     Usart usart_{gd32::USART1};
     SoftI2c aht_bus_{pins::kAhtScl, pins::kAhtSda};
 
-    Feeders feeders_{tim3_, adc_};
+    Feeders feeders_{adc_};
     Hub hub_{tim0_};
     Sensors sensors_;
     Mt6826Odometer odometer_{spi_};

@@ -92,7 +92,7 @@ bool Usart::read(uint8_t& b) {
 
 // ---- ADC --------------------------------------------------------------------------
 void Adc::init() {
-    reg(RCU_APB2EN) |= APB2_ADC0;
+    reg(RCU_APB2EN) |= enable_;
     // ADC clock = APB2 / 6 = 20 MHz (the GD32F30x ADC allows at most 40 MHz).
     reg(RCU_CFG0) = (reg(RCU_CFG0) & ~RCU_CFG0_ADCPSC_MASK) | RCU_CFG0_ADCPSC_DIV6;
     reg(base_ + ADC_CTL1) = ADC_CTL1_ETSRC_SW | ADC_CTL1_ETERC;

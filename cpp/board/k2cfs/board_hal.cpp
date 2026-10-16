@@ -23,9 +23,6 @@ void SysTickClock::sleep_ms(uint32_t ms) {
 
 // ---- feeders --------------------------------------------------------------------
 namespace {
-// TIMER3 channel for each feeder input (-1 = no PWM, GPIO only).
-constexpr int kIn1Channel[4] = {-1, -1, 3, 1};
-constexpr int kIn2Channel[4] = {-1, -1, 2, 0};
 constexpr float kRippleBlockedV = 0.05f;
 }  // namespace
 
@@ -33,37 +30,23 @@ void Feeders::init() {
     for (int s = 0; s < 4; ++s) {
         pin_write(pins::kFeederIn1[s], true);  // brake
         pin_write(pins::kFeederIn2[s], true);
-        const PinMode m = kIn1Channel[s] < 0 ? PinMode::OutputPP : PinMode::AltPP;
-        pin_mode(pins::kFeederIn1[s], m);
-        pin_mode(pins::kFeederIn2[s], m);
+        pin_mode(pins::kFeederIn1[s], PinMode::OutputPP);
+        pin_mode(pins::kFeederIn2[s], PinMode::OutputPP);
         pin_mode(pins::kFeederAdcPin[s], PinMode::Analog);
-        if (kIn1Channel[s] >= 0) {
-            tim_.enable_channel(kIn1Channel[s]);
-            tim_.enable_channel(kIn2Channel[s]);
-            tim_.set_compare(kIn1Channel[s], tim_.steps());  // 100 % high = brake
-            tim_.set_compare(kIn2Channel[s], tim_.steps());
-        }
     }
 }
 
-// Slow-decay drive: the selected input is pulled low for speed/255 of each period
-// while the other stays high; both high is brake (docs/spec/06 section 1).
-// Which electrical direction is "forward" on the spool is not verified yet.
+// Stock GPIO drive (0x08010054): direction 0 sets input +4 high and +5 low,
+// direction 1 the opposite, speed 0 sets both high (brake). Any non-zero speed is
+// full on. Which way the spool turns for direction 0 is not verified on hardware.
 void Feeders::run(int slot, Dir dir, uint8_t speed) {
     if (speed == 0) {
         stop(slot);
         return;
     }
-    const bool pulse_in1 = dir == Dir::Forward;
-    if (kIn1Channel[slot] < 0) {
-        pin_write(pins::kFeederIn1[slot], !pulse_in1);
-        pin_write(pins::kFeederIn2[slot], pulse_in1);
-    } else {
-        const uint32_t steps = tim_.steps();
-        const uint16_t high = static_cast<uint16_t>(steps - (steps * speed) / 255u);
-        tim_.set_compare(kIn1Channel[slot], pulse_in1 ? high : static_cast<uint16_t>(steps));
-        tim_.set_compare(kIn2Channel[slot], pulse_in1 ? static_cast<uint16_t>(steps) : high);
-    }
+    const bool dir0 = dir == Dir::Forward;
+    pin_write(pins::kFeederIn1[slot], dir0);
+    pin_write(pins::kFeederIn2[slot], !dir0);
     if (!running_[slot]) {
         running_[slot] = true;
         fill_[slot] = 0;
@@ -72,13 +55,8 @@ void Feeders::run(int slot, Dir dir, uint8_t speed) {
 }
 
 void Feeders::stop(int slot) {
-    if (kIn1Channel[slot] < 0) {
-        pin_write(pins::kFeederIn1[slot], true);
-        pin_write(pins::kFeederIn2[slot], true);
-    } else {
-        tim_.set_compare(kIn1Channel[slot], tim_.steps());
-        tim_.set_compare(kIn2Channel[slot], tim_.steps());
-    }
+    pin_write(pins::kFeederIn1[slot], true);
+    pin_write(pins::kFeederIn2[slot], true);
     running_[slot] = false;
     blocked_[slot] = false;
     fill_[slot] = 0;
@@ -366,10 +344,9 @@ void Board::init() {
     clock.init();
     gpio_clocks_on();
     reg(RCU_APB2EN) |= APB2_TIMER0;
-    reg(RCU_APB1EN) |= APB1_TIMER3 | APB1_USART1;
-    reg(AFIO_PCF0) |= PCF0_TIMER0_FULL_REMAP | PCF0_TIMER3_REMAP;
+    reg(RCU_APB1EN) |= APB1_USART1;
+    reg(AFIO_PCF0) |= PCF0_TIMER0_FULL_REMAP;
 
-    tim3_.init(50000, static_cast<uint16_t>(kTimerClkHz / 50000));  // feeders 50 kHz
     tim0_.init(20000, static_cast<uint16_t>(kTimerClkHz / 20000));  // hub 20 kHz
     adc_.init();
 
