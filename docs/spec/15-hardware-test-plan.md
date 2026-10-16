@@ -59,11 +59,25 @@ Pass:
 
 The box mode returns to standard, because `F0 06` erased the parameter page.
 
-**0.3 Rehearse recovery.** Run the normal stock CFS update (`apply --cfs` with the
-real list, or the helper's equivalent) and time it, from the power cycle to
-`start_app`.
+**0.3 Rehearse recovery.** Flash the stock image again through the same custom
+path and time it, from the power cycle to `start_app`. The normal stock update
+(`apply --cfs` with the real list) is **not** a recovery here: it updates only a
+CFS whose generation is lower than the listed one or whose application is
+invalid (`08-loader-and-recovery.md` §6.2). Stock, the K2-OpenHost
+`cfs0_000_153` builds and OpenCFS all report 153, so it would leave any of them
+in place. Recovery always means the custom path with the stock image (same
+version allowed, no comparison in JSON mode).
 
-**Gate:** 0.2 and 0.3 each pass twice.
+**0.4 Back to the box's previous firmware.** If the box ran a K2-OpenHost build
+before stage 0 (for example runtime-config v3.22), flash that build again
+through the same path and check that Kalico sees its features
+(`box_cfs_runtime.firmware_features`). Stage 0 ends with the box as it was.
+
+**Preconditions for 0.2–0.4:** no print running, the box idle, the owner at the
+printer. The helper refuses while printing, and stops Klipper itself only after
+its own checks.
+
+**Gate:** 0.2 and 0.3 each pass twice, then 0.4.
 
 ## Stage 1 — OpenCFS inert image: boot and bus
 

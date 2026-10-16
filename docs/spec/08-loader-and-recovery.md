@@ -181,3 +181,8 @@ The file name only changed the logged and recorded version
 - **Recovery** needs nothing from the application: power cycle, enumeration
   within 30 s, update. A broken image cannot prevent it, because the application
   only runs after the window.
+- **Recovery uses the custom path.** A normal update with the stock list does
+  not replace a valid image of the same generation, so a misbehaving
+  `cfs0_000_153` image stays until it is flashed explicitly (JSON mode,
+  `k2oh-mcu-fw apply --cfs --cfs-image <stock> ...`). Only an invalid image
+  (the loader reports `000_000`) is replaced by a normal update.
