@@ -14,3 +14,6 @@ Testing/
 *.swp
 .DS_Store
 __pycache__/
+
+# Creality tag keys generated from your own firmware (tools/re/extract_tag_keys.py)
+cpp/board/k2cfs/local/
