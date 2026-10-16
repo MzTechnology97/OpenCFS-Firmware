@@ -18,6 +18,8 @@ struct CardInfo {
 
     bool classic() const { return sak == 0x08 || sak == 0x09 || sak == 0x18 || sak == 0x88; }
     bool classic_1k() const { return atqa[0] == 0x04 && atqa[1] == 0x00 && sak == 0x08; }
+    // ISO/IEC 14443-4 compliant (SAK bit 5): DESFire, NTAG 424, Type 4 NDEF tags.
+    bool iso_dep() const { return (sak & 0x20) != 0; }
     // NFC Type 2 (NTAG21x, Ultralight): SAK 0x00.
     bool type2() const { return sak == 0x00; }
 };
@@ -33,9 +35,19 @@ public:
     virtual bool auth_a(uint8_t block, const uint8_t key[6]) = 0;
     // READ 0x30: one Classic block, or four Type 2 pages starting at `index`.
     virtual bool read16(uint8_t index, uint8_t out[16]) = 0;
+    // Raw frame exchange with CRC on both directions (ISO-DEP). `rx_len` = bytes
+    // received. Default: not supported.
+    virtual bool transceive(const uint8_t* tx, size_t tx_len, uint8_t* rx, size_t rx_cap, size_t& rx_len) {
+        (void)tx;
+        (void)tx_len;
+        (void)rx;
+        (void)rx_cap;
+        rx_len = 0;
+        return false;
+    }
 };
 
-enum class DecoderId : uint8_t { None = 0, Creality = 1, Bambu = 2, KeyList = 3, Type2 = 4 };
+enum class DecoderId : uint8_t { None = 0, Creality = 1, Bambu = 2, KeyList = 3, Type2 = 4, Type4 = 5 };
 
 enum : uint8_t { kFlagAuthenticated = 1u << 0, kFlagNdef = 1u << 1, kFlagTruncated = 1u << 2 };
 

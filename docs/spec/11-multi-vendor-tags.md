@@ -46,8 +46,10 @@ profile and material-library mapping.
 | Technology | Stock support | OpenCFS |
 | --- | --- | --- |
 | MIFARE Classic 1K (ATQA `04 00`, SAK `08`) | Creality decryption | Creality, Bambu, configured key lists |
-| MIFARE Classic Mini / 4K (SAK `09` / `18`) | not read | key lists (sector math per type) |
+| MIFARE Classic Mini / 4K (SAK `09` / `18`) | not read | key lists, sector 1 (blocks 4..6 sit in sector 1 on every size) |
 | NFC Type 2 / NTAG21x / Ultralight | already read: `30 04`, `30 08`, hex record (`0x0800D3DE`) | page reads 4..N, NDEF TLV, open formats |
+| NFC Type 4 / ISO-DEP (SAK bit 5: NTAG 424, DESFire with NDEF) | not read | RATS, I-blocks with WTX, SELECT NDEF app / CC / file, READ BINARY (read-only) |
+| 10-byte UIDs (cascade level 3) | not selected (stock stops at CL2) | CL1..CL3, following SAK bit 2 |
 | ISO15693 / NFC-V (Prusa production tags) | none | needs the FM17622 datasheet to confirm the analog front-end supports it [?] |
 
 The stock firmware already sends READ to non-Classic tags, so the Type 2 path
@@ -64,6 +66,7 @@ decoder that read it last (8 entries, RAM only).
 | 2 | Bambu | Classic 1K, 4-byte UID | HKDF-SHA256(salt = user's Bambu secret, IKM = UID, info `"RFID-A\0"`, 96 bytes) → 16 Key A | blocks 1, 2, 4, 5, 6, 14 | material (block 2), detail (block 4), RGBA, weight, diameter, temperatures, length |
 | 3 | Key list | any Classic | user list (e.g. QIDI factory key) | blocks 4–6 | raw only; QIDI codes from block 4 bytes 0..2 when the entry is tagged QIDI |
 | 4 | Type 2 / NDEF | NTAG / Ultralight | none | pages 4.., until the end of the NDEF message or 256 bytes | OpenSpool JSON (`type`, `color_hex`, `brand`, `min_temp`, `max_temp`), otherwise raw |
+| 5 | Type 4 / NDEF | ISO-DEP (SAK bit 5) | none | NDEF file up to 192 bytes in 48-byte READ BINARY chunks | OpenSpool JSON fields, raw 16-byte chunks |
 | – | Snapmaker U1, Anycubic, ELEGOO, TigerTag, OpenTag3D | | | | planned, need real dumps for tests |
 
 Bambu field layout (from the hardware-validated host decoder `box_rfid_bambu.py`):
@@ -84,7 +87,7 @@ Payload (all multi-byte fields little-endian):
 | Off | Size | Field |
 | --- | --- | --- |
 | 0 | 1 | slot |
-| 1 | 1 | decoder id: 0 none, 1 Creality, 2 Bambu, 3 key list, 4 Type 2 |
+| 1 | 1 | decoder id: 0 none, 1 Creality, 2 Bambu, 3 key list, 4 Type 2, 5 Type 4 |
 | 2 | 1 | flags: bit0 authenticated, bit1 NDEF found, bit2 truncated |
 | 3 | 1 | UID length (4, 7 or 10) |
 | 4 | 10 | UID, zero padded |
@@ -123,4 +126,7 @@ checks that the decoders compile in their disabled form.
 | Auth + READ | fixed 10 + 10 ms | poll; several blocks per authenticated sector |
 | Retry after failed auth | next revolution | re-select in the same window |
 
-The numbers in the OpenCFS column are targets, not measurements.
+The numbers in the OpenCFS column are targets, not measurements. The driver has
+the ComIrq polling (`Fm17622::set_fast(true)`, RxIRq/IdleIRq/ErrIRq, the stock
+wait as upper bound) but it stays **off by default** until it is qualified on
+hardware.

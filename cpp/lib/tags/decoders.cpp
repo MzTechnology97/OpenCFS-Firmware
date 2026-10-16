@@ -157,6 +157,42 @@ bool json_string(const char* json, size_t len, const char* key, char* out, size_
     return false;
 }
 
+bool parse_ndef_message(const uint8_t* r, size_t l, TagReadout& out) {
+    // First NDEF record only: header, type length, payload length, [id length].
+    if (l < 3) return false;
+    const uint8_t hdr = r[0];
+    const bool sr = hdr & 0x10, il = hdr & 0x08;
+    const uint8_t tnf = hdr & 0x07;
+    size_t q = 1;
+    const size_t type_len = r[q++];
+    size_t payload_len;
+    if (sr) {
+        payload_len = r[q++];
+    } else {
+        if (q + 4 > l) return false;
+        payload_len = static_cast<size_t>(r[q]) << 24 | static_cast<size_t>(r[q + 1]) << 16 |
+                      static_cast<size_t>(r[q + 2]) << 8 | r[q + 3];
+        q += 4;
+    }
+    const size_t id_len = il ? r[q++] : 0;
+    const char* type = reinterpret_cast<const char*>(r + q);
+    q += type_len + id_len;
+    if (q > l) return false;
+    if (payload_len > l - q) {
+        out.flags |= kFlagTruncated;
+        payload_len = l - q;
+    }
+    static const char kJson[] = "application/json";
+    if (tnf != 0x02 || type_len != sizeof kJson - 1 || std::strncmp(type, kJson, type_len) != 0) return true;
+    const char* json = reinterpret_cast<const char*>(r + q);
+    char v[24];
+    if (json_string(json, payload_len, "type", v, sizeof v)) out.set_material(v, std::strlen(v));
+    if (json_string(json, payload_len, "color_hex", v, sizeof v)) parse_rgb(v, std::strlen(v), out.rgba);
+    if (json_string(json, payload_len, "min_temp", v, sizeof v)) out.nozzle_min_c = parse_uint(v, std::strlen(v));
+    if (json_string(json, payload_len, "max_temp", v, sizeof v)) out.nozzle_max_c = parse_uint(v, std::strlen(v));
+    return true;
+}
+
 bool parse_ndef_json(const uint8_t* mem, size_t len, TagReadout& out) {
     size_t p = 0;
     while (p < len) {
@@ -178,39 +214,7 @@ bool parse_ndef_json(const uint8_t* mem, size_t len, TagReadout& out) {
             l = len - p;
         }
         out.flags |= kFlagNdef;
-        // First NDEF record only: header, type length, payload length, [id length].
-        const uint8_t* r = mem + p;
-        if (l < 3) return false;
-        const uint8_t hdr = r[0];
-        const bool sr = hdr & 0x10, il = hdr & 0x08;
-        const uint8_t tnf = hdr & 0x07;
-        size_t q = 1;
-        const size_t type_len = r[q++];
-        size_t payload_len;
-        if (sr) {
-            payload_len = r[q++];
-        } else {
-            if (q + 4 > l) return false;
-            payload_len = static_cast<size_t>(r[q]) << 24 | static_cast<size_t>(r[q + 1]) << 16 |
-                          static_cast<size_t>(r[q + 2]) << 8 | r[q + 3];
-            q += 4;
-        }
-        const size_t id_len = il ? r[q++] : 0;
-        const char* type = reinterpret_cast<const char*>(r + q);
-        q += type_len + id_len;
-        if (q > l) return false;
-        if (payload_len > l - q) {
-            out.flags |= kFlagTruncated;
-            payload_len = l - q;
-        }
-        static const char kJson[] = "application/json";
-        if (tnf != 0x02 || type_len != sizeof kJson - 1 || std::strncmp(type, kJson, type_len) != 0) return true;
-        const char* json = reinterpret_cast<const char*>(r + q);
-        char v[24];
-        if (json_string(json, payload_len, "type", v, sizeof v)) out.set_material(v, std::strlen(v));
-        if (json_string(json, payload_len, "color_hex", v, sizeof v)) parse_rgb(v, std::strlen(v), out.rgba);
-        if (json_string(json, payload_len, "min_temp", v, sizeof v)) out.nozzle_min_c = parse_uint(v, std::strlen(v));
-        if (json_string(json, payload_len, "max_temp", v, sizeof v)) out.nozzle_max_c = parse_uint(v, std::strlen(v));
+        parse_ndef_message(mem + p, l, out);
         return true;
     }
     return false;
@@ -260,6 +264,76 @@ bool Type2Decoder::read(TagSession& session, TagReadout& out) {
     }
     out.has_creality = true;
     parse_ndef_json(mem, got, out);
+    return true;
+}
+
+// ---- NFC Type 4 / ISO-DEP ---------------------------------------------------------------
+bool Type4Decoder::apdu(TagSession& s, const uint8_t* cmd, size_t len, uint8_t* resp, size_t cap,
+                        size_t& resp_len) {
+    uint8_t tx[1 + 16];
+    if (len > sizeof tx - 1) return false;
+    tx[0] = pcb_;
+    for (size_t i = 0; i < len; ++i) tx[1 + i] = cmd[i];
+    uint8_t rx[kChunk + 8];
+    size_t n = 0;
+    if (!s.transceive(tx, 1 + len, rx, sizeof rx, n)) return false;
+    for (int wtx = 0; wtx < 3 && n >= 2 && (rx[0] & 0xF7) == 0xF2; ++wtx) {  // S(WTX): echo it
+        const uint8_t ack[2] = {rx[0], rx[1]};
+        if (!s.transceive(ack, 2, rx, sizeof rx, n)) return false;
+    }
+    if (n < 3 || (rx[0] & 0xE2) != 0x02) return false;  // I-block with SW1 SW2
+    pcb_ ^= 0x01;                                       // block number toggles
+    if (rx[n - 2] != 0x90 || rx[n - 1] != 0x00) return false;
+    resp_len = n - 3;
+    if (resp_len > cap) return false;
+    for (size_t i = 0; i < resp_len; ++i) resp[i] = rx[1 + i];
+    return true;
+}
+
+bool Type4Decoder::read(TagSession& session, TagReadout& out) {
+    uint8_t ats[24];
+    size_t n = 0;
+    const uint8_t rats[2] = {0xE0, 0x50};  // FSDI 5 (64 bytes), CID 0
+    if (!session.transceive(rats, 2, ats, sizeof ats, n) || n < 1) return false;
+    pcb_ = 0x02;
+    uint8_t r[kChunk];
+    size_t rn = 0;
+    static const uint8_t kSelectApp[] = {0x00, 0xA4, 0x04, 0x00, 0x07, 0xD2, 0x76,
+                                         0x00, 0x00, 0x85, 0x01, 0x01, 0x00};
+    static const uint8_t kSelectCc[] = {0x00, 0xA4, 0x00, 0x0C, 0x02, 0xE1, 0x03};
+    static const uint8_t kReadCc[] = {0x00, 0xB0, 0x00, 0x00, 0x0F};
+    if (!apdu(session, kSelectApp, sizeof kSelectApp, r, sizeof r, rn)) return false;
+    if (!apdu(session, kSelectCc, sizeof kSelectCc, r, sizeof r, rn)) return false;
+    if (!apdu(session, kReadCc, sizeof kReadCc, r, sizeof r, rn) || rn < 15 || r[7] != 0x04) return false;
+    const uint8_t fid_hi = r[9], fid_lo = r[10];
+    size_t mle = static_cast<size_t>(r[3] << 8 | r[4]);
+    if (mle == 0 || mle > kChunk) mle = kChunk;
+    const uint8_t select_ndef[] = {0x00, 0xA4, 0x00, 0x0C, 0x02, fid_hi, fid_lo};
+    if (!apdu(session, select_ndef, sizeof select_ndef, r, sizeof r, rn)) return false;
+    const uint8_t read_nlen[] = {0x00, 0xB0, 0x00, 0x00, 0x02};
+    if (!apdu(session, read_nlen, sizeof read_nlen, r, sizeof r, rn) || rn < 2) return false;
+    size_t nlen = static_cast<size_t>(r[0] << 8 | r[1]);
+    if (nlen > kMaxNdef) {
+        out.flags |= kFlagTruncated;
+        nlen = kMaxNdef;
+    }
+    uint8_t msg[kMaxNdef];
+    size_t got = 0;
+    while (got < nlen) {
+        const size_t off = 2 + got;
+        const size_t want = nlen - got < mle ? nlen - got : mle;
+        const uint8_t rd[] = {0x00, 0xB0, static_cast<uint8_t>(off >> 8), static_cast<uint8_t>(off),
+                              static_cast<uint8_t>(want)};
+        if (!apdu(session, rd, sizeof rd, msg + got, sizeof msg - got, rn) || rn == 0) return false;
+        got += rn;
+    }
+    for (size_t i = 0; i + 16 <= got && out.raw_count < TagReadout::kMaxRaw; i += 16) {
+        out.add_raw(static_cast<uint8_t>(i / 16), msg + i);
+    }
+    out.flags |= kFlagNdef;
+    parse_ndef_message(msg, got, out);
+    const uint8_t deselect = 0xC2;
+    session.transceive(&deselect, 1, r, sizeof r, rn);
     return true;
 }
 

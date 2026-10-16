@@ -29,17 +29,24 @@ public:
     bool authenticate_a(uint8_t block, const uint8_t key[6], const uint8_t uid4[4]);
     bool read_block(uint8_t block, uint8_t out[16]);  // also four Type 2 pages
     void clear_crypto();                              // leave a Crypto1 session
+    // CRC-framed exchange (ISO-DEP blocks), waiting at most `max_ms`.
+    bool transceive(const uint8_t* tx, size_t tx_len, uint8_t* rx, size_t rx_cap, size_t& rx_len,
+                    uint32_t max_ms);
+    // Poll the completion flags instead of the stock fixed waits (unqualified).
+    void set_fast(bool on) { fast_ = on; }
 
 private:
     bool write_reg(uint8_t reg, uint8_t value);
     uint8_t read_reg(uint8_t reg);
     void modify_reg(uint8_t reg, uint8_t mask, bool set);
     void start(bool crc, const uint8_t* fifo, uint8_t len, uint8_t command, uint8_t framing);
+    void wait(uint32_t max_ms);
     bool anticollision(uint8_t sel, uint8_t out[5]);
     bool select(uint8_t sel, const uint8_t cl[5], uint8_t& sak);
 
     SoftI2c& bus_;
     Clock& clock_;
+    bool fast_ = false;
 };
 
 // One activated tag on one reader, for the core tag pipeline.
@@ -52,6 +59,9 @@ public:
         return chip_.authenticate_a(block, key, card_.uid);
     }
     bool read16(uint8_t index, uint8_t out[16]) override { return chip_.read_block(index, out); }
+    bool transceive(const uint8_t* tx, size_t tx_len, uint8_t* rx, size_t rx_cap, size_t& rx_len) override {
+        return chip_.transceive(tx, tx_len, rx, rx_cap, rx_len, 20);  // within the default FWT
+    }
 
 private:
     Fm17622& chip_;

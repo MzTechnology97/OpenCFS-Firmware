@@ -27,7 +27,7 @@ namespace cfs::board {
 
 class VendorDecoders {
 public:
-    static constexpr size_t kCount = 4;
+    static constexpr size_t kCount = 5;
 
     VendorDecoders()
 #if CFS_HAVE_CREALITY_KEYS
@@ -42,7 +42,7 @@ public:
           bambu_(nullptr, 0),
           key_list_(nullptr, 0),
 #endif
-          list_{&creality_, &bambu_, &key_list_, &type2_} {
+          list_{&creality_, &bambu_, &key_list_, &type2_, &type4_} {
     }
 
     tags::TagDecoder* const* list() const { return list_; }
@@ -52,6 +52,7 @@ private:
     tags::BambuDecoder bambu_;
     tags::KeyListDecoder key_list_;
     tags::Type2Decoder type2_;
+    tags::Type4Decoder type4_;
     tags::TagDecoder* list_[kCount];
 };
 

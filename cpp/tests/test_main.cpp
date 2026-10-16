@@ -1002,6 +1002,98 @@ void test_factory_modes_refused() {
     CHECK(status_of(rig.request(0x5D, {})) == 1);
 }
 
+// ---- NFC Type 4 (ISO-DEP) with a simulated tag ----
+struct FakeType4 : cfs::tags::TagSession {
+    cfs::tags::CardInfo c;
+    std::vector<uint8_t> cc, ndef;  // files E103 and E104
+    const std::vector<uint8_t>* selected = nullptr;
+    bool app_selected = false, wtx_once = true;
+    int expect_block = 0;  // block number the next I-block must carry
+    bool block_error = false;
+    FakeType4() {
+        c.atqa[0] = 0x44;
+        c.sak = 0x20;
+        c.uid_len = 7;
+        for (int i = 0; i < 7; ++i) c.uid[i] = static_cast<uint8_t>(0x10 + i);
+    }
+    const cfs::tags::CardInfo& card() const override { return c; }
+    bool reactivate() override { return true; }
+    bool auth_a(uint8_t, const uint8_t*) override { return false; }
+    bool read16(uint8_t, uint8_t*) override { return false; }
+    bool transceive(const uint8_t* tx, size_t n, uint8_t* rx, size_t cap, size_t& rn) override {
+        std::vector<uint8_t> out;
+        if (n == 2 && tx[0] == 0xE0) {
+            out = {0x05, 0x78, 0x80, 0x70, 0x02};  // ATS
+        } else if (n == 2 && (tx[0] & 0xF7) == 0xF2) {
+            out = {static_cast<uint8_t>(0x02 | expect_block), 0x90, 0x00};  // answer after WTX
+            pending_ok_ = false;
+            expect_block ^= 1;
+        } else if (n == 1 && tx[0] == 0xC2) {
+            out = {0xC2};
+        } else if (n >= 5 && (tx[0] & 0xE2) == 0x02) {
+            if ((tx[0] & 1) != expect_block) block_error = true;
+            const uint8_t* a = tx + 1;
+            std::vector<uint8_t> data;
+            bool ok = false;
+            if (a[1] == 0xA4 && a[2] == 0x04) {
+                app_selected = true;
+                ok = true;
+                if (wtx_once) {  // ask for more time once, then answer
+                    wtx_once = false;
+                    out = {0xF2, 0x01};
+                    pending_ok_ = true;
+                    rn = out.size();
+                    std::memcpy(rx, out.data(), rn);
+                    return true;
+                }
+            } else if (a[1] == 0xA4 && a[2] == 0x00 && app_selected) {
+                selected = (a[5] == 0xE1 && a[6] == 0x03) ? &cc : (a[5] == 0xE1 && a[6] == 0x04) ? &ndef : nullptr;
+                ok = selected != nullptr;
+            } else if (a[1] == 0xB0 && selected) {
+                const size_t off = static_cast<size_t>(a[2] << 8 | a[3]);
+                const size_t len = a[4];
+                ok = off + len <= selected->size();
+                if (ok) data.assign(selected->begin() + off, selected->begin() + off + len);
+            }
+            out.push_back(static_cast<uint8_t>(0x02 | expect_block));
+            out.insert(out.end(), data.begin(), data.end());
+            out.push_back(ok ? 0x90 : 0x6A);
+            out.push_back(ok ? 0x00 : 0x82);
+            expect_block ^= 1;
+        } else {
+            return false;
+        }
+        if (out.size() > cap) return false;
+        std::memcpy(rx, out.data(), out.size());
+        rn = out.size();
+        return true;
+    }
+    bool pending_ok_ = false;
+};
+
+void test_type4_ndef() {
+    using namespace cfs::tags;
+    FakeType4 t;
+    t.cc = {0x00, 0x0F, 0x20, 0x00, 0x3B, 0x00, 0x34, 0x04, 0x06, 0xE1, 0x04, 0x00, 0xFF, 0x00, 0xFF};
+    const char json[] = "{\"protocol\":\"openspool\",\"type\":\"PLA\",\"color_hex\":\"112233\",\"min_temp\":\"200\",\"max_temp\":\"220\"}";
+    const char mime[] = "application/json";
+    const size_t pl = sizeof json - 1, tl = sizeof mime - 1;
+    std::vector<uint8_t> msg = {0xD2, static_cast<uint8_t>(tl), static_cast<uint8_t>(pl)};
+    msg.insert(msg.end(), mime, mime + tl);
+    msg.insert(msg.end(), json, json + pl);
+    t.ndef = {static_cast<uint8_t>(msg.size() >> 8), static_cast<uint8_t>(msg.size())};
+    t.ndef.insert(t.ndef.end(), msg.begin(), msg.end());
+
+    Type4Decoder type4;
+    TagDecoder* const list[] = {&type4};
+    TagPipeline pipeline(list, 1);
+    TagReadout r;
+    CHECK(pipeline.read(t, r));
+    CHECK(r.decoder == DecoderId::Type4 && (r.flags & kFlagNdef) && !t.block_error);
+    CHECK(std::strncmp(r.material, "PLA", 4) == 0 && r.rgba == 0x112233FFu);
+    CHECK(r.nozzle_min_c == 200 && r.nozzle_max_c == 220 && !r.has_creality);
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -1034,6 +1126,7 @@ int main() {
         {"pretension_cycles", test_pretension_cycles},
         {"preload_pause_and_forced", test_preload_pause_and_forced_preload},
         {"factory_modes_refused", test_factory_modes_refused},
+        {"type4_ndef", test_type4_ndef},
     };
     for (const Test& t : tests) {
         const int before = g_failed;

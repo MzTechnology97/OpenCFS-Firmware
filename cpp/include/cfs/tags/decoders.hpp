@@ -70,8 +70,27 @@ public:
     bool read(TagSession& session, TagReadout& out) override;
 };
 
+// NFC Forum Type 4 (ISO-DEP): RATS, then the NDEF application, the capability
+// container and the NDEF file with READ BINARY. Read-only: no UPDATE BINARY.
+class Type4Decoder : public TagDecoder {
+public:
+    static constexpr size_t kMaxNdef = 192;
+    static constexpr size_t kChunk = 48;  // fits the 64-byte reader FIFO with PCB, SW and CRC
+    DecoderId id() const override { return DecoderId::Type4; }
+    bool matches(const CardInfo& card) const override { return card.iso_dep(); }
+    bool read(TagSession& session, TagReadout& out) override;
+
+private:
+    // One APDU in an I-block; returns the response data without SW (must be 90 00).
+    bool apdu(TagSession& s, const uint8_t* cmd, size_t len, uint8_t* resp, size_t cap, size_t& resp_len);
+    uint8_t pcb_ = 0x02;
+};
+
 // Helpers shared with tests.
+// Type 2 memory: TLVs, then the first NDEF message.
 bool parse_ndef_json(const uint8_t* mem, size_t len, TagReadout& out);
+// One NDEF message (Type 4 file content after NLEN): OpenSpool JSON fields.
+bool parse_ndef_message(const uint8_t* msg, size_t len, TagReadout& out);
 bool json_string(const char* json, size_t len, const char* key, char* out, size_t out_len);
 
 }  // namespace cfs::tags
