@@ -97,6 +97,10 @@ struct TagRecord {
     char text[kTagRecordLen] = {};  // Creality 40-character ASCII record
 };
 
+namespace tags {
+struct TagReadout;
+}
+
 // RFID front-end for the antenna that faces a slot's spool.
 class RfidReader {
 public:
@@ -105,6 +109,11 @@ public:
     virtual Detect detect(int slot) = 0;
     virtual bool read_uid(int slot, TagUid& uid) = 0;
     virtual bool read_record(int slot, TagRecord& rec) = 0;
+    // Multi-vendor readout of the last read_record() (docs/11); nullptr if none.
+    virtual const tags::TagReadout* last_tag(int slot) {
+        (void)slot;
+        return nullptr;
+    }
 };
 
 // Persistent settings (stock: key/value database in internal flash).

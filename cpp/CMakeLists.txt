@@ -19,6 +19,9 @@ add_library(cfs_core
     lib/param_store.cpp
     lib/aes128.cpp
     lib/creality_tag.cpp
+    lib/sha256.cpp
+    lib/tags/tag.cpp
+    lib/tags/decoders.cpp
 )
 target_include_directories(cfs_core PUBLIC include)
 if(MSVC)

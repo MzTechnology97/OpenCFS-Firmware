@@ -75,7 +75,7 @@ jobs:
             libstdc++-arm-none-eabi-newlib libnewlib-arm-none-eabi
       - name: Cross compile the C++ core and board-port objects (objects only, NO ELF OR BIN)
         run: |
-          for f in cpp/lib/*.cpp cpp/board/k2cfs/*.cpp; do
+          for f in cpp/lib/*.cpp cpp/lib/tags/*.cpp cpp/board/k2cfs/*.cpp; do
             arm-none-eabi-g++ -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 \
               -std=c++17 -Os -fno-exceptions -fno-rtti -ffreestanding \
               -Wall -Wextra -Werror -Wpedantic -Icpp/include -Icpp/board/k2cfs \

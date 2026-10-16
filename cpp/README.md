@@ -28,7 +28,9 @@ code. How it was produced, honestly stated:
 | `supervisor.*` | blocked/overload supervision, reverse detooth, 10 s safety stop |
 | `param_store.*` | stock parameter page codec (CRC-16/XMODEM, keys 5 and 6, load policy) |
 | `aes128.*`, `creality_tag.*` | AES-128 block cipher and the stock Creality tag Key A derivation / block decryption (keys are parameters) |
-| `board/k2cfs/` | GD32F303 board port: own register map, GPIO/PWM/USART/ADC/SPI/soft-I2C, and HAL drivers (GPIO feeders with the ripple stall detector, hub speed PID with blocked/overload, sensors, MT6826S with the stock framing, AHT30, LEDs, RS-485, stock-compatible flash parameter page, FM17622 read-only RFID driver, `CrealityTagCrypto` using a git-ignored `local/creality_keys.hpp` made by `tools/re/extract_tag_keys.py` from your own firmware image). Compiled as objects only. |
+| `sha256.*` | SHA-256, HMAC-SHA256 and HKDF-SHA256 (Bambu key derivation) |
+| `tags/tag.*`, `tags/decoders.*` | read-only multi-vendor tag pipeline: Creality, Bambu, configured MIFARE keys (QIDI), NFC Type 2 / NDEF (OpenSpool), per-UID routing, command `0x60` payload (`docs/spec/11`) |
+| `board/k2cfs/` | GD32F303 board port: own register map, GPIO/PWM/USART/ADC/SPI/soft-I2C, and HAL drivers (GPIO feeders with the ripple stall detector, hub speed PID with blocked/overload, sensors, MT6826S with the stock framing, AHT30, LEDs, RS-485, stock-compatible flash parameter page, FM17622 read-only RFID driver as a tag session, `vendor_decoders.hpp` building the decoders from git-ignored `local/creality_keys.hpp` (`tools/re/extract_tag_keys.py`, from your own firmware image) and `local/vendor_keys.hpp` (from `vendor_keys.example.hpp`)). Compiled as objects only. |
 | `sim/` | deterministic filament-path simulator implementing the HAL |
 | `tests/` | host tests (97 checks) |
 

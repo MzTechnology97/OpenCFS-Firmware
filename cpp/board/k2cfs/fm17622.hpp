@@ -1,35 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // FM17622 13.56 MHz reader front-ends of the K2 CFS (docs/spec/10 section 5).
 // Register sequences follow the stock driver (0x0800BDD4..0x0800C8E6). The driver
-// only reads tags: it has no write path, like stock in practice (card_write at
-// 0x0800C70E is never called). NOT qualified on hardware.
+// only reads tags: it has no write path (stock never calls its card_write at
+// 0x0800C70E either). Tag formats are decoded by the core pipeline
+// (cfs/tags, docs/spec/11). NOT qualified on hardware.
 #pragma once
 
 #include <cstdint>
 
 #include "board_io.hpp"
 #include "cfs/hal.hpp"
+#include "cfs/tags/tag.hpp"
 
 namespace cfs::board {
 
-// Creality tag secrets. Stock derives MIFARE Key A from the UID and decrypts
-// blocks 4..6 with AES-128 (S-boxes at 0x0802BD89 / 0x0802BE89). OpenCFS does
-// not ship those keys: an integrator provides them through this interface.
-// Without it, MIFARE Classic tags report a UID but no record.
-class TagCrypto {
-public:
-    virtual ~TagCrypto() = default;
-    virtual bool key_a(const uint8_t uid4[4], uint8_t key[6]) = 0;
-    virtual bool decrypt_block(uint8_t block[16]) = 0;
-};
-
-struct CardInfo {
-    uint8_t atqa[2] = {};
-    uint8_t uid[7] = {};
-    uint8_t uid_len = 0;  // 4 or 7
-    uint8_t sak = 0;
-    bool mifare_classic_1k() const { return atqa[0] == 0x04 && atqa[1] == 0x00 && sak == 0x08; }
-};
+using tags::CardInfo;
 
 // One FM17622 on its own software I2C bus, 7-bit address 0x28.
 class Fm17622 {
@@ -42,7 +27,8 @@ public:
     void antenna(bool on);
     Activate activate(CardInfo& card);  // WUPA, anticollision and select, cascade 1/2
     bool authenticate_a(uint8_t block, const uint8_t key[6], const uint8_t uid4[4]);
-    bool read_block(uint8_t block, uint8_t out[16]);
+    bool read_block(uint8_t block, uint8_t out[16]);  // also four Type 2 pages
+    void clear_crypto();                              // leave a Crypto1 session
 
 private:
     bool write_reg(uint8_t reg, uint8_t value);
@@ -56,20 +42,37 @@ private:
     Clock& clock_;
 };
 
+// One activated tag on one reader, for the core tag pipeline.
+class Fm17622Session : public tags::TagSession {
+public:
+    Fm17622Session(Fm17622& chip, CardInfo& card) : chip_(chip), card_(card) {}
+    const CardInfo& card() const override { return card_; }
+    bool reactivate() override;
+    bool auth_a(uint8_t block, const uint8_t key[6]) override {
+        return chip_.authenticate_a(block, key, card_.uid);
+    }
+    bool read16(uint8_t index, uint8_t out[16]) override { return chip_.read_block(index, out); }
+
+private:
+    Fm17622& chip_;
+    CardInfo& card_;
+};
+
 // The two readers of the box. Slot A/B use reader 0, C/D reader 1 (docs/spec/05
 // section 4). Both TX drivers are switched on together, so a neighbor tag in the
 // shared field shows up as a collision (Detect::Multiple), as in stock.
 class Fm17622Rfid : public RfidReader {
 public:
-    Fm17622Rfid(SoftI2c& bus0, SoftI2c& bus1, Clock& clock, TagCrypto* crypto = nullptr)
-        : chip_{Fm17622(bus0, clock), Fm17622(bus1, clock)}, buses_{&bus0, &bus1}, crypto_(crypto) {}
+    Fm17622Rfid(SoftI2c& bus0, SoftI2c& bus1, Clock& clock, tags::TagPipeline& pipeline)
+        : chip_{Fm17622(bus0, clock), Fm17622(bus1, clock)}, buses_{&bus0, &bus1}, pipeline_(pipeline) {}
 
     // Soft-reset each reader, up to 3 tries (0x0800BF74). Bit n set = reader n OK.
     uint8_t init();
-    void set_crypto(TagCrypto* crypto) { crypto_ = crypto; }
     Detect detect(int slot) override;
     bool read_uid(int slot, TagUid& uid) override;
+    // Runs the decoders; the stock 40-character record when one applies.
     bool read_record(int slot, TagRecord& rec) override;
+    const tags::TagReadout* last_tag(int slot) override { return have_[slot] ? &last_[slot] : nullptr; }
 
 private:
     Fm17622& chip(int slot) { return chip_[slot / 2]; }
@@ -77,9 +80,11 @@ private:
 
     Fm17622 chip_[2];
     SoftI2c* buses_[2];
-    TagCrypto* crypto_;
+    tags::TagPipeline& pipeline_;
     CardInfo card_[4];
     bool present_[4] = {};
+    tags::TagReadout last_[4];
+    bool have_[4] = {};
 };
 
 }  // namespace cfs::board

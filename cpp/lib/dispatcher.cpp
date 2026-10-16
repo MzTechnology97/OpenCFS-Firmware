@@ -3,6 +3,8 @@
 
 #include <cstring>
 
+#include "cfs/tags/tag.hpp"
+
 namespace cfs {
 
 namespace {
@@ -433,6 +435,22 @@ void Dispatcher::handle(const Frame& f) {
         reply(f.cmd, Status::Ok);
         hw_.system.reset_after_ms(100);
         break;
+    case Cmd::TagInfo: {
+        if (!check_len(f, 1)) break;
+        if (p[0] >= kSlotCount) {
+            reply(f.cmd, Status::InvalidParam);
+            break;
+        }
+        const tags::TagReadout* r = hw_.rfid.last_tag(p[0]);
+        uint8_t v[kMaxPayload];
+        const size_t n = r ? tags::encode_tag_info(p[0], *r, v, sizeof v) : 0;
+        if (!n) {
+            reply(f.cmd, Status::SlotEmpty);
+            break;
+        }
+        reply(f.cmd, Status::Ok, v, n);
+        break;
+    }
     case Cmd::BoxIndex:
         if (f.len == 1 && f.addr == kAddrBoxBroadcast) box_.box_index = p[0];
         break;  // never answered

@@ -16,7 +16,9 @@
 #include "cfs/preload.hpp"
 #include "cfs/print_tracker.hpp"
 #include "cfs/spool.hpp"
+#include "cfs/sha256.hpp"
 #include "cfs/supervisor.hpp"
+#include "cfs/tags/decoders.hpp"
 #include "cfs/usage.hpp"
 #include "sim.hpp"
 
@@ -510,6 +512,227 @@ void test_aes_and_creality_tag() {
     CHECK(std::memcmp(block, "AB1240276A210100", 16) == 0);
 }
 
+// SHA-256 (FIPS 180-2 "abc") and HKDF-SHA256 (RFC 5869 test case 1).
+void test_sha256_hkdf() {
+    const uint8_t abc[] = {'a', 'b', 'c'};
+    const uint8_t abc_digest[32] = {0xBA, 0x78, 0x16, 0xBF, 0x8F, 0x01, 0xCF, 0xEA, 0x41, 0x41, 0x40,
+                                    0xDE, 0x5D, 0xAE, 0x22, 0x23, 0xB0, 0x03, 0x61, 0xA3, 0x96, 0x17,
+                                    0x7A, 0x9C, 0xB4, 0x10, 0xFF, 0x61, 0xF2, 0x00, 0x15, 0xAD};
+    uint8_t d[32];
+    cfs::sha256::digest(abc, sizeof abc, d);
+    CHECK(std::memcmp(d, abc_digest, 32) == 0);
+
+    uint8_t ikm[22], salt[13], info[10];
+    std::memset(ikm, 0x0B, sizeof ikm);
+    for (int i = 0; i < 13; ++i) salt[i] = static_cast<uint8_t>(i);
+    for (int i = 0; i < 10; ++i) info[i] = static_cast<uint8_t>(0xF0 + i);
+    const uint8_t okm_ref[42] = {0x3C, 0xB2, 0x5F, 0x25, 0xFA, 0xAC, 0xD5, 0x7A, 0x90, 0x43, 0x4F,
+                                 0x64, 0xD0, 0x36, 0x2F, 0x2A, 0x2D, 0x2D, 0x0A, 0x90, 0xCF, 0x1A,
+                                 0x5A, 0x4C, 0x5D, 0xB0, 0x2D, 0x56, 0xEC, 0xC4, 0xC5, 0xBF, 0x34,
+                                 0x00, 0x72, 0x08, 0xD5, 0xB8, 0x87, 0x18, 0x58, 0x65};
+    uint8_t okm[42];
+    CHECK(cfs::sha256::hkdf(salt, sizeof salt, ikm, sizeof ikm, info, sizeof info, okm, sizeof okm));
+    CHECK(std::memcmp(okm, okm_ref, 42) == 0);
+}
+
+// ---- multi-vendor tags (docs/11) with simulated tags and dummy keys ----
+struct FakeClassic : cfs::tags::TagSession {
+    cfs::tags::CardInfo c;
+    uint8_t blocks[64][16] = {};
+    uint8_t keys[16][6] = {};
+    int authed = -1;
+    bool halted = false;
+    int auth_calls = 0, reactivations = 0;
+    explicit FakeClassic(const uint8_t uid[4]) {
+        c.atqa[0] = 0x04;
+        c.sak = 0x08;
+        c.uid_len = 4;
+        std::memcpy(c.uid, uid, 4);
+        for (auto& k : keys) std::memset(k, 0x5A, 6);  // nothing matches by default
+    }
+    const cfs::tags::CardInfo& card() const override { return c; }
+    bool reactivate() override {
+        ++reactivations;
+        halted = false;
+        authed = -1;
+        return true;
+    }
+    bool auth_a(uint8_t block, const uint8_t key[6]) override {
+        ++auth_calls;
+        if (halted) return false;
+        if (std::memcmp(key, keys[block / 4], 6) == 0) {
+            authed = block / 4;
+            return true;
+        }
+        halted = true;  // a failed authentication drops the tag out of the session
+        authed = -1;
+        return false;
+    }
+    bool read16(uint8_t index, uint8_t out[16]) override {
+        if (halted || authed != index / 4) return false;
+        std::memcpy(out, blocks[index], 16);
+        return true;
+    }
+};
+
+struct FakeType2 : cfs::tags::TagSession {
+    cfs::tags::CardInfo c;
+    uint8_t mem[144] = {};  // NTAG213 user memory, from page 4
+    FakeType2() {
+        c.atqa[0] = 0x44;
+        c.sak = 0x00;
+        c.uid_len = 7;
+        for (int i = 0; i < 7; ++i) c.uid[i] = static_cast<uint8_t>(0x04 + i);
+    }
+    const cfs::tags::CardInfo& card() const override { return c; }
+    bool reactivate() override { return true; }
+    bool auth_a(uint8_t, const uint8_t*) override { return false; }
+    bool read16(uint8_t page, uint8_t out[16]) override {
+        const size_t off = static_cast<size_t>(page - 4) * 4;
+        if (page < 4 || off + 16 > sizeof mem) return false;  // past the end of user memory
+        std::memcpy(out, mem + off, 16);
+        return true;
+    }
+};
+
+void test_multi_vendor_tags() {
+    using namespace cfs::tags;
+    const uint8_t uid[4] = {0x37, 0x10, 0x15, 0x73};
+    uint8_t kdf[16], rec_key[16], salt[16];
+    for (int i = 0; i < 16; ++i) {
+        kdf[i] = static_cast<uint8_t>(15 - i);
+        rec_key[i] = static_cast<uint8_t>(0x10 + 7 * i);
+        salt[i] = static_cast<uint8_t>(0xA0 + i);
+    }
+    const KeyEntry key_list[] = {{{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, KeyListDecoder::kHintQidi}};
+    CrealityDecoder creality(kdf, rec_key);
+    BambuDecoder bambu(salt, sizeof salt);
+    KeyListDecoder keys(key_list, 1);
+    Type2Decoder type2;
+    TagDecoder* const list[] = {&creality, &bambu, &keys, &type2};
+    TagPipeline pipeline(list, 4);
+
+    // Bambu HKDF: sector 0 key computed independently (Python hmac + hashlib).
+    uint8_t bk[16][6];
+    CHECK(bambu.derive_keys(uid, bk));
+    const uint8_t bambu_s0[6] = {0xEF, 0xE4, 0x4B, 0xB7, 0x8E, 0x36};
+    CHECK(std::memcmp(bk[0], bambu_s0, 6) == 0);
+
+    // Creality: Key A from the UID (value checked in aes_and_creality_tag), the
+    // 48-character record encrypted into blocks 4..6.
+    {
+        FakeClassic t(uid);
+        const uint8_t key_a[6] = {0x37, 0x7D, 0xCD, 0xE7, 0x92, 0x51};
+        std::memcpy(t.keys[1], key_a, 6);
+        const char* rec = "AB1240276A21010010FF88000330123456000000"
+                          "00000000";
+        for (int blk = 0; blk < 3; ++blk) {
+            std::memcpy(t.blocks[4 + blk], rec + 16 * blk, 16);
+            cfs::aes128::encrypt_block(rec_key, t.blocks[4 + blk]);
+        }
+        TagReadout r;
+        CHECK(pipeline.read(t, r));
+        CHECK(r.decoder == DecoderId::Creality && r.has_creality);
+        CHECK(std::memcmp(r.creality.text, rec, 40) == 0);
+        CHECK(std::strncmp(r.material, "101001", 6) == 0);
+        CHECK(r.rgba == 0xFF8800FFu && r.length_m == 330);
+    }
+
+    // Bambu: the Creality attempt fails, the tag is reselected, Bambu reads it.
+    FakeClassic b(uid);
+    std::memcpy(b.keys, bk, sizeof bk);
+    std::memcpy(b.blocks[2], "PLA", 3);
+    std::memcpy(b.blocks[4], "PLA Basic", 9);
+    const uint8_t b5[16] = {0xFF, 0x00, 0x00, 0xFF, 0xE8, 0x03, 0, 0, 0x00, 0x00, 0xE0, 0x3F};  // 1000 g, 1.75 mm
+    const uint8_t b6[16] = {55, 0, 8, 0, 1, 0, 35, 0, 230, 0, 190, 0};
+    std::memcpy(b.blocks[5], b5, 16);
+    std::memcpy(b.blocks[6], b6, 16);
+    b.blocks[14][4] = 0x4A;  // 330 m
+    b.blocks[14][5] = 0x01;
+    TagReadout r;
+    CHECK(pipeline.read(b, r));
+    CHECK(r.decoder == DecoderId::Bambu && b.reactivations == 1);
+    CHECK(std::strncmp(r.material, "PLA", 4) == 0);
+    CHECK(r.rgba == 0xFF0000FFu && r.weight_g == 1000 && r.diameter_centi_mm == 175);
+    CHECK(r.nozzle_min_c == 190 && r.nozzle_max_c == 230 && r.length_m == 330);
+    CHECK(r.raw_count == 6 && !r.has_creality);
+    // Same UID again: the routing cache goes straight to Bambu.
+    b.reactivations = 0;
+    CHECK(pipeline.read(b, r) && r.decoder == DecoderId::Bambu && b.reactivations == 0);
+
+    // Command 0x60 payload of that readout.
+    uint8_t v[cfs::kMaxPayload];
+    const size_t n = encode_tag_info(2, r, v, sizeof v);
+    CHECK(n == kTagInfoHeader + 6 * 17);
+    CHECK(v[0] == 2 && v[1] == 2 && v[3] == 4 && v[4] == 0x37 && v[17] == 'P');
+    CHECK(v[33] == 0xFF && v[36] == 0xFF && v[37] == 0xE8 && v[38] == 0x03 && v[48] == 6);
+    CHECK(v[kTagInfoHeader] == 1);  // first raw entry: block 1
+
+    // Factory key (QIDI): raw block 4 and the vendor hint.
+    {
+        const uint8_t quid[4] = {0x11, 0x22, 0x33, 0x44};
+        FakeClassic q(quid);
+        std::memset(q.keys[1], 0xFF, 6);
+        q.blocks[4][0] = 0x25;
+        q.blocks[4][1] = 0x02;
+        q.blocks[4][2] = 0x01;
+        TagReadout qr;
+        CHECK(pipeline.read(q, qr));
+        CHECK(qr.decoder == DecoderId::KeyList && qr.vendor_hint == KeyListDecoder::kHintQidi);
+        CHECK(qr.raw_count == 3 && qr.raw[0].index == 4 && qr.raw[0].data[0] == 0x25);
+    }
+
+    // Unknown MIFARE Classic: nothing reads it, the card identity is kept.
+    {
+        const uint8_t uuid[4] = {0xDE, 0xAD, 0xBE, 0xEF};
+        FakeClassic u(uuid);
+        TagReadout ur;
+        CHECK(!pipeline.read(u, ur));
+        CHECK(ur.decoder == DecoderId::None && ur.card.uid[0] == 0xDE && !ur.has_creality);
+    }
+
+    // NTAG213 with an OpenSpool NDEF JSON record (143 bytes, past 128).
+    {
+        FakeType2 t;
+        const char json[] =
+            "{\"protocol\":\"openspool\",\"version\":\"1.0\",\"type\":\"PETG\","
+            "\"color_hex\":\"1A2B3C\",\"brand\":\"X\",\"min_temp\":\"230\",\"max_temp\":\"250\"}";
+        const char mime[] = "application/json";
+        const size_t pl = sizeof json - 1, tl = sizeof mime - 1;
+        size_t o = 0;
+        t.mem[o++] = 0x03;
+        t.mem[o++] = static_cast<uint8_t>(3 + tl + pl);
+        t.mem[o++] = 0xD2;  // MB | ME | SR, TNF = MIME media
+        t.mem[o++] = static_cast<uint8_t>(tl);
+        t.mem[o++] = static_cast<uint8_t>(pl);
+        std::memcpy(t.mem + o, mime, tl);
+        o += tl;
+        std::memcpy(t.mem + o, json, pl);
+        o += pl;
+        t.mem[o++] = 0xFE;
+        TagReadout tr;
+        CHECK(pipeline.read(t, tr));
+        CHECK(tr.decoder == DecoderId::Type2 && (tr.flags & kFlagNdef));
+        CHECK(std::strncmp(tr.material, "PETG", 5) == 0 && tr.rgba == 0x1A2B3CFFu);
+        CHECK(tr.nozzle_min_c == 230 && tr.nozzle_max_c == 250);
+        CHECK(tr.has_creality && std::strncmp(tr.creality.text, "038CD21079", 10) == 0);
+    }
+}
+
+void test_tag_info_command() {
+    Rig rig;
+    CHECK(status_of(rig.request(0x60, {1})) == 0x08);  // nothing read yet
+    CHECK(status_of(rig.request(0x60, {4})) == 0x01);  // bad slot
+    cfs::tags::TagReadout r;
+    r.decoder = cfs::tags::DecoderId::Type2;
+    r.card.uid_len = 7;
+    r.set_material("PETG", 4);
+    rig.w.tag_readout[1] = &r;
+    const auto reply = rig.request(0x60, {1});
+    CHECK(status_of(reply) == 0 && reply.size() == 6 + cfs::tags::kTagInfoHeader);
+    CHECK(reply[5] == 1 && reply[6] == 4 && reply[5 + 17] == 'P');
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -531,6 +754,9 @@ int main() {
         {"usage_reset_on_removal_and_runout", test_usage_reset_on_removal_and_runout},
         {"param_store", test_param_store},
         {"aes_and_creality_tag", test_aes_and_creality_tag},
+        {"sha256_hkdf", test_sha256_hkdf},
+        {"multi_vendor_tags", test_multi_vendor_tags},
+        {"tag_info_command", test_tag_info_command},
     };
     for (const Test& t : tests) {
         const int before = g_failed;

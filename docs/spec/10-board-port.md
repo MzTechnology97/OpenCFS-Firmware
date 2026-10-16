@@ -208,11 +208,14 @@ off (`0x0800D670`).
   builds K1 and word 1 builds K2 (`0x08026156`). The algorithm is in
   `05-preload-rfid.md` §7. OpenCFS does not ship the keys:
   `tools/re/extract_tag_keys.py` writes a git-ignored `local/creality_keys.hpp`
-  from your own image, and `CrealityTagCrypto` uses it when present.
+  from your own image, and the Creality decoder (`vendor_decoders.hpp`, `docs/spec/11`) uses it when present.
 - Other tags (e.g. NTAG with a 7-byte UID): no authentication. Read pages 4 and 8
   (16 bytes each); the record is the first 20 bytes as 40 uppercase hex
   characters.
 - The write routine `card_write` (`0x0800C70E`) is never called (`05-preload-rfid.md` §8).
+- OpenCFS runs the reader as a tag session for the multi-vendor pipeline
+  (`11-multi-vendor-tags.md`): one open per read, decoders in order, reselect after
+  a failed authentication. The stock sequences above stay the reference.
 
 ## 6. Slot indicators
 

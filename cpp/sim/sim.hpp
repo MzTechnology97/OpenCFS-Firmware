@@ -88,6 +88,8 @@ public:
     Detect detect(int slot) override;
     bool read_uid(int slot, TagUid& uid) override;
     bool read_record(int slot, TagRecord& rec) override;
+    const tags::TagReadout* last_tag(int slot) override { return tag_readout[slot]; }
+    const tags::TagReadout* tag_readout[4] = {};  // what command 0x60 reports
 
     // Settings
     uint8_t mode() override { return mode_; }

@@ -197,3 +197,9 @@ Kalico keeps the UID→address mapping.
   appended handler at `0x0802DE38` through the patched `0x0800F3A0` branch.
   Specified in [standalone-implementation.md](https://github.com/MzTechnology97/k2-cfs-rfid-tools/blob/main/docs/standalone-implementation.md) and the k2-cfs-rfid-tools
   `handler-v3_22.S`; it is out of scope for the stock reconstruction.
+
+## 8. Added by OpenCFS (not in stock)
+
+| Cmd | Request | Reply | Behavior |
+| --- | --- | --- | --- |
+| `0x60` | 1: slot | `0x00` + readout, `0x01` invalid slot, `0x08` nothing read yet | Multi-vendor readout of the last tag read on the slot: decoder, UID/ATQA/SAK, material, RGBA, weight, length, diameter, nozzle range, vendor hint, up to 6 raw 16-byte blocks or page groups. Read-only, never starts motion. Layout in `11-multi-vendor-tags.md` §5. |

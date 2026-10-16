@@ -25,10 +25,6 @@ constexpr uint8_t kTx1Tx2 = 0x03;         // TxControl: both antenna drivers
 constexpr uint8_t kWupa = 0x52, kSelCl1 = 0x93, kSelCl2 = 0x95, kCascadeTag = 0x88;
 constexpr uint8_t kMfAuthKeyA = 0x60, kMfRead = 0x30;
 
-// Creality record: blocks 4, 5 and the first 8 bytes of 6 (0x0800D3DE).
-constexpr uint8_t kRecordBlocks[3] = {4, 5, 6};
-// Other tags: pages 4..8 read with two READs, first 20 bytes hex-encoded.
-constexpr uint8_t kPageA = 4, kPageB = 8;
 }  // namespace
 
 // ---- one reader -------------------------------------------------------------------
@@ -138,6 +134,18 @@ bool Fm17622::authenticate_a(uint8_t block, const uint8_t key[6], const uint8_t 
     return (read_reg(kStatus2) & kCrypto1On) != 0;
 }
 
+void Fm17622::clear_crypto() { write_reg(kStatus2, 0x00); }
+
+bool Fm17622Session::reactivate() {
+    chip_.clear_crypto();
+    CardInfo again;
+    if (chip_.activate(again) != Fm17622::Activate::Ok || again.uid_len != card_.uid_len) return false;
+    for (uint8_t i = 0; i < card_.uid_len; ++i) {
+        if (again.uid[i] != card_.uid[i]) return false;  // another tag took its place
+    }
+    return true;
+}
+
 bool Fm17622::read_block(uint8_t block, uint8_t out[16]) {
     if (block > 0x3F) return false;
     const uint8_t cmd[2] = {kMfRead, block};
@@ -194,32 +202,14 @@ bool Fm17622Rfid::read_uid(int slot, TagUid& uid) {
 
 bool Fm17622Rfid::read_record(int slot, TagRecord& rec) {
     if (!present_[slot] && open(slot) != Fm17622::Activate::Ok) return false;
-    Fm17622& c = chip(slot);
-    const CardInfo& card = card_[slot];
-    bool ok = false;
-    if (card.mifare_classic_1k()) {
-        uint8_t key[6];
-        // Blocks 4..6 share sector 1: one authentication on block 4, as stock.
-        ok = crypto_ && crypto_->key_a(card.uid, key) &&
-             c.authenticate_a(kRecordBlocks[0] & 0xFC, key, card.uid);
-        size_t pos = 0;
-        for (uint8_t b : kRecordBlocks) {
-            uint8_t data[16];
-            ok = ok && c.read_block(b, data) && crypto_->decrypt_block(data);
-            for (size_t i = 0; ok && i < 16 && pos < kTagRecordLen; ++i) rec.text[pos++] = static_cast<char>(data[i]);
-        }
-    } else {
-        uint8_t data[32];
-        ok = c.read_block(kPageA, data) && c.read_block(kPageB, data + 16);
-        static const char kHex[] = "0123456789ABCDEF";
-        for (size_t i = 0; ok && i < kTagRecordLen / 2; ++i) {
-            rec.text[2 * i] = kHex[data[i] >> 4];
-            rec.text[2 * i + 1] = kHex[data[i] & 0x0F];
-        }
-    }
-    c.antenna(false);
+    Fm17622Session session(chip(slot), card_[slot]);
+    pipeline_.read(session, last_[slot]);
+    have_[slot] = true;
+    chip(slot).antenna(false);
     present_[slot] = false;
-    return ok;
+    if (!last_[slot].has_creality) return false;
+    rec = last_[slot].creality;
+    return true;
 }
 
 }  // namespace cfs::board
