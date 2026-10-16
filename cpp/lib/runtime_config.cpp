@@ -64,14 +64,16 @@ const RuntimeConfig::Param RuntimeConfig::kParams[kCount] = {
       [](const Config& c) -> uint16_t { return static_cast<uint16_t>(c.timing.hub_sensor_timeout_ms / 10); },
       [](Config& c, uint16_t v) { c.timing.hub_sensor_timeout_ms = 10u * v; }},
     P{U16, W | ADV | SAFE, 5000, 500, 15000, CFS_U32(timing.unload_buffer_timeout_ms)},  // 9
-    P{U16, ADV | SAFE, 1000, 100, 5000, CFS_NOT_MODELED},     // 10 unload_sensor_timeout (10 ms polls)
+    // 10 and 25 hook 0x08004DF2, which nothing calls in stock 1.5.3: no behavior.
+    P{U16, ADV | SAFE, 1000, 100, 5000, CFS_NOT_MODELED},     // 10 unload_sensor_timeout
     P{U8, W | ADV | RF, 160, 1, 255, CFS_U8(speeds.rfid_seek)},          // 11
     P{U8, W | ADV | RF, 120, 1, 255, CFS_U8(speeds.rfid_measure)},       // 12
     P{U8, W | ADV | RF, 100, 1, 255, CFS_U8(speeds.rfid_reposition)},    // 13
     P{U16, W | ADV | RF, 800, 100, 5000, CFS_U32(timing.rfid_seek_move_ms)},      // 14
     P{U16, W | ADV | RF, 200, 10, 2000, CFS_U32(timing.rfid_seek_settle_ms)},     // 15
     P{U16, W | ADV | RF, 1000, 100, 5000, CFS_U32(timing.rfid_retry_reverse_ms)}, // 16
-    P{U16, ADV | RF, 10, 1, 1000, CFS_NOT_MODELED},           // 17 rfid_pre_measure_settle
+    // 17: stock waits 400 ms here (0x08005A5C), the host catalogue says 10.
+    P{U16, W | ADV | RF, 400, 1, 1000, CFS_U32(timing.rfid_pre_read_settle_ms)},  // 17
     P{U16, W | ADV | RF, 400, 50, 2000, CFS_U32(timing.rfid_neighbor_move_ms)},   // 18
     P{U16, W | ADV | RF, 100, 10, 1000, CFS_U32(timing.rfid_neighbor_settle_ms)},  // 19
     P{U16, W | ADV | SAFE, 1250, 250, 3000, CFS_U32(timing.feed_total_samples)},  // 20 (20 ms ticks)
@@ -81,7 +83,7 @@ const RuntimeConfig::Param RuntimeConfig::kParams[kCount] = {
     P{U16, W | ADV | SAFE, 1000, 100, 10000, CFS_U32(supervision.detooth_after_ms)},  // 24
     P{U16, ADV | SAFE, 30000, 1000, 60000, CFS_NOT_MODELED},  // 25 buffer_fill_timeout
     P{U16, ADV | SAFE, 300, 50, 5000, CFS_NOT_MODELED},       // 26 transition_detect_timeout
-    P{U16, ADV | SAFE, 3, 1, 10, CFS_NOT_MODELED},            // 27 load_retry_count
+    P{U16, W | ADV | SAFE, 3, 1, 10, CFS_U32(timing.pretension_cycles)},       // 27 pretension cycles
 };
 
 #undef CFS_U8

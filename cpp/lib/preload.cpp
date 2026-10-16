@@ -17,6 +17,15 @@ void RfidScanner::nudge_neighbor_away(int slot) {
     hw_.clock.sleep_ms(cfg_.timing.rfid_neighbor_settle_ms);
 }
 
+// Stock 0x0800604A..0x08006080: while the neighbor's tag shares the field, nudge
+// the neighbor spool away, at most `rfid_locate_attempts` times.
+void RfidScanner::clear_neighbor(int slot) {
+    for (uint32_t i = 0; i < cfg_.timing.rfid_locate_attempts; ++i) {
+        if (hw_.rfid.detect(slot) != RfidReader::Detect::Multiple) return;
+        nudge_neighbor_away(slot);
+    }
+}
+
 bool RfidScanner::locate(int slot) {
     for (uint32_t attempt = 0; attempt < cfg_.timing.rfid_locate_attempts; ++attempt) {
         const auto d = hw_.rfid.detect(slot);
@@ -108,18 +117,20 @@ bool RfidScanner::read_record(int slot) {
 RfidScanner::Result RfidScanner::scan(int slot) {
     Result r;
     box_.rfid[slot] = SlotRfid{};
-    // The hub can only rotate the spool once the filament is engaged in it. A tag
-    // that is not found yet is fine: the measurement below rotates the spool anyway.
-    if (!locate(slot)) {
-        r.status = feeder_.feed_until_hub_sensor(slot);
-        if (r.status == Status::Ok) r.status = feeder_.push_through_hub(slot);
-        if (r.status != Status::Ok) {
-            feeder_.stop_all();
-            if (hw_.sensors.hub_present(slot)) feeder_.retract_slot(slot);
-            return r;
-        }
-        locate(slot);
+    // Stock order (0x080056EA): clear a neighbor tag from the field, always feed the
+    // filament up to the hub (the hub can only turn the spool once engaged), settle,
+    // then look for the tag with short hub moves. A tag not found yet is fine: the
+    // measurement below rotates the spool anyway.
+    clear_neighbor(slot);
+    r.status = feeder_.feed_until_hub_sensor(slot);
+    if (r.status == Status::Ok) r.status = feeder_.push_through_hub(slot);
+    if (r.status != Status::Ok) {
+        feeder_.stop_all();
+        if (hw_.sensors.hub_present(slot)) feeder_.retract_slot(slot);
+        return r;
     }
+    hw_.clock.sleep_ms(cfg_.timing.rfid_pre_read_settle_ms);
+    locate(slot);
     const bool measured = measure(slot, r.per_rev_mm);
     r.record_read = read_record(slot);
     feeder_.stop_all();
@@ -200,14 +211,19 @@ void Preload::sample() {
     }
 }
 
+// Stock 0x080055B0: `pretension_cycles` times, feed until the hub sensor sees the
+// filament, then pull back until it is clear; each move times out after 10 s.
 void Preload::pretension(int slot) {
     MotionScope m(box_);
-    hw_.feeders.run(slot, Dir::Forward, cfg_.speeds.feeder_forward);
-    for (int t = 0; t < 10000 && !hw_.sensors.hub_present(slot); ++t) hw_.clock.sleep_ms(1);
-    hw_.feeders.stop(slot);
-    hw_.feeders.run(slot, Dir::Reverse, cfg_.speeds.feeder_reverse);
-    for (int t = 0; t < 10000 && hw_.sensors.hub_present(slot); ++t) hw_.clock.sleep_ms(1);
-    hw_.feeders.stop(slot);
+    const uint32_t timeout = cfg_.timing.pretension_timeout_ms;
+    for (uint32_t cycle = 0; cycle < cfg_.timing.pretension_cycles; ++cycle) {
+        hw_.feeders.run(slot, Dir::Forward, cfg_.speeds.feeder_forward);
+        for (uint32_t t = 0; t < timeout && !hw_.sensors.hub_present(slot); ++t) hw_.clock.sleep_ms(1);
+        hw_.feeders.stop(slot);
+        hw_.feeders.run(slot, Dir::Reverse, cfg_.speeds.feeder_reverse);
+        for (uint32_t t = 0; t < timeout && hw_.sensors.hub_present(slot); ++t) hw_.clock.sleep_ms(1);
+        hw_.feeders.stop(slot);
+    }
 }
 
 void Preload::finish(int slot) {

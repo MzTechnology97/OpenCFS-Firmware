@@ -917,6 +917,30 @@ void test_app_insert_event() {
     CHECK(seen == BoxState::Preload);
 }
 
+// Stock pretension (0x080055B0): in/out cycles counted on the hub sensor; ID 27
+// sets the count through the runtime config.
+void test_pretension_cycles() {
+    for (uint16_t cycles : {static_cast<uint16_t>(3), static_cast<uint16_t>(2)}) {
+        AppRig r;
+        r.app.box.read_on_insert = false;  // pretension only, no RFID scan
+        if (cycles != 3) {
+            r.w.sleep_ms(600);  // interlock: at rest for 500 ms
+            CHECK(status_of(r.request(0x57, {0x12, 27, static_cast<uint8_t>(cycles), 0})) == 0);
+        }
+        int rises = 0;
+        bool last = false;
+        r.extra = [&] {
+            const bool now = r.hw.sensors.hub_present(1);
+            if (now && !last) ++rises;
+            last = now;
+        };
+        r.w.insert(1);
+        r.run(2000);
+        CHECK(rises == cycles);
+        CHECK(r.app.box.state() == BoxState::Idle);
+    }
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -946,6 +970,7 @@ int main() {
         {"app_print_refill_and_background", test_app_print_refill_and_background},
         {"app_supervision_during_blocking", test_app_supervision_during_blocking_routine},
         {"app_insert_event", test_app_insert_event},
+        {"pretension_cycles", test_pretension_cycles},
     };
     for (const Test& t : tests) {
         const int before = g_failed;

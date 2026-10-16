@@ -166,10 +166,14 @@ Also closes the slot's RFID usage accounting before starting.
    - 40 s elapsed → `0x1A` UNLOAD_ODOMETER_TIMEOUT.
 3. **Clear the hub path sensor** (`pull_back_hub_pe`):
    - If the sensor shows filament, keep reversing and wait up to **7 s** for 10
-     *clear* samples, else `0x14` UNLOAD_HUB_PE_TIMEOUT. The recovery variant makes
-     3 attempts, each re-feeding 20 mm first.
-   - If it is already clear: stop the feeder, confirm for 0.5 s, and reverse again if needed.
-   - Wait 300 ms, then stop the slot feeder.
+     *clear* samples, else `0x14` UNLOAD_HUB_PE_TIMEOUT. Then wait 300 ms and stop
+     the hub and the slot feeder.
+   - If it is already clear: stop the hub and the slot feeder at once and confirm
+     for 0.5 s (50 polls); done, without the 300 ms wait. If the filament comes
+     back, reverse the hub, wait 200 ms, reverse the feeder (`0x08004160`) and do
+     the 7 s wait above.
+   - A recovery variant (3 attempts of 3 s each, re-feeding first) exists, but both
+     stock callers (`0x08004C5A`, `0x080056EA`) pass mode 0, so it never runs.
 
 ## 6. Other motion commands
 
@@ -217,7 +221,7 @@ swap; Kalico orders runout groups by remaining percentage.
 | Code | Name | Origin |
 | --- | --- | --- |
 | `0x05` | STAGE0_SENSOR_TIMEOUT | hub sensor not reached in 7 s |
-| `0x06` | BUFFER_FILL_TIMEOUT | buffer not full within 30 s (`cmd_parse_out` path) |
+| `0x06` | BUFFER_FILL_TIMEOUT | buffer not full within 30 s; only in `0x08004DF2`, which nothing calls in 1.5.3 |
 | `0x08` | SLOT_EMPTY | no filament at the inlet (load precondition) |
 | `0x09` | STAGE0_ODOMETER_TIMEOUT | no 20 mm of odometer travel in 2 s |
 | `0x0A` | FEED_TIMEOUT | 25 s feed without completion, or no movement at stage 2 |

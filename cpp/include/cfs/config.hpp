@@ -57,6 +57,12 @@ struct Timing {
     uint32_t rfid_seek_move_ms = 800;
     uint32_t rfid_seek_settle_ms = 200;
     uint32_t rfid_retry_reverse_ms = 1000;
+    uint32_t rfid_pre_read_settle_ms = 400;  // after feeding to the hub (stock 0x08005A5C)
+    // Pretension on insertion (stock 0x080055B0): in/out cycles and per-move timeout.
+    uint32_t pretension_cycles = 3;
+    uint32_t pretension_timeout_ms = 10000;
+    // pull_back_hub_pe (stock 0x08004884): confirm an already clear hub sensor.
+    uint32_t hub_clear_confirm_ms = 500;
 };
 
 struct Supervision {

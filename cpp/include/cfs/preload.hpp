@@ -57,6 +57,7 @@ public:
     void set_usage(UsageManager* u) { usage_ = u; }
 
 private:
+    void clear_neighbor(int slot);
     bool locate(int slot);
     bool measure(int slot, float& per_rev_mm);
     bool read_record(int slot);

@@ -43,7 +43,7 @@ The thread runs one step every 1 ms.
 | --- | --- |
 | 0 INIT | Seed state 3 for a slot that was already pending at boot. |
 | 1 WAIT | If preload is not allowed: clear the FIFO. Otherwise pop the next slot; when no hub sensor shows filament from another slot, go to 3. |
-| 3 PRETENSION | Set the box state to PRELOAD when preload is enabled. Pretension the slot in every case: feeder forward at full speed until the filtered hub sensor detects filament (≤ 10 s), stop, then feeder reverse until it clears (≤ 10 s), stop. With preload disabled go to FINISH, otherwise go to 2. |
+| 3 PRETENSION | Set the box state to PRELOAD when preload is enabled. Pretension the slot in every case: feeder forward at full speed until the filtered hub sensor detects filament (≤ 10 s), stop, then feeder reverse until it clears (≤ 10 s), stop; **three such in/out cycles** (`0x080055B0`, counter compared at `0x08005616`). With preload disabled go to FINISH, otherwise go to 2. |
 | 2 CHECK_HUB | If any slot's filament is in the hub (`hub has filament`): FINISH. Otherwise go to 4. |
 | 4 READ | If the inlet stays occupied (no 2 absent samples within 50 ms) or a read was requested for the slot: run **RFID read and margin estimation** (section 5), then refresh the slot indicator. Reached only when preload is enabled (`0x0D` sub 1, default). |
 | FINISH | Back to WAIT; set the slot event to "finished" (3 present / 2 absent); box state back to IDLE; sleep 300 ms. |
@@ -90,9 +90,10 @@ spool revolution.
      still detected, feeder reverse at 255 for 400 ms, stop all feeders, wait
      100 ms, up to 3 times (`0x0800604A`..`0x08006080`; confirmed independently in
      k2-cfs-rfid-tools #47).
-   - Then the box feeds the filament up to the hub (`feed_top_to_hub`).
+   - Then the box **always** feeds the filament up to the hub (`feed_top_to_hub`,
+     `0x08004326`) and waits **400 ms** (`0x08005A5C`).
    - If the tag is still not seen: hub forward at speed 160 for 800 ms, then stop
-     for 200 ms, up to 3 times.
+     for 200 ms, up to 3 times (`0x08005A7A`..`0x08005AB8`).
 2. **Measure one revolution**: hub forward at speed 120, watching the tag every 5 ms
    (20 s overall timeout).
    - On the first detection: read the tag UID and note the odometer position.

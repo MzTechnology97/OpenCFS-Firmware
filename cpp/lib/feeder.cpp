@@ -253,10 +253,23 @@ Status Feeder::pull_back_through_hub(int slot) {
     return Status::UnloadOdometerTimeout;
 }
 
+// Stock pull_back_hub_pe(slot, 0) (0x08004884). Both stock callers use this mode;
+// the retry mode (3 x 300 polls) is never reached in 1.5.3.
 Status Feeder::clear_hub_sensor(int slot) {
     MotionScope m(box_);
-    if (hw_.sensors.hub_present(slot) &&
-        !wait_hub_sensor(slot, false, cfg_.timing.hub_clear_timeout_ms, 10)) {
+    if (!hw_.sensors.hub_present(slot)) {
+        // Already clear: stop at once and confirm for 0.5 s.
+        hw_.hub.stop();
+        hw_.feeders.stop(slot);
+        if (wait_hub_sensor(slot, false, cfg_.timing.hub_clear_confirm_ms, 10)) {
+            return Status::Ok;
+        }
+        // The filament came back: pull back again (stock 0x08004160).
+        hw_.hub.run(Dir::Reverse, cfg_.speeds.hub_reverse);
+        sleep(200);
+        hw_.feeders.run(slot, Dir::Reverse, cfg_.speeds.feeder_reverse);
+    }
+    if (!wait_hub_sensor(slot, false, cfg_.timing.hub_clear_timeout_ms, 10)) {
         stop_all();
         return Status::UnloadHubPeTimeout;
     }

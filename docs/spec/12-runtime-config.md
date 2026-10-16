@@ -42,14 +42,14 @@ against stock 1.5.3.
 | 7 | hub_transition_wait_ms | 3200 | `0x0800411E` (`rt_thread_mdelay(0xC80)`) | `timing.hub_transition_wait_ms` |
 | 8 | insert_sensor_timeout | 700 | `feed_until_hub_sensor` `0x080042D0` | `timing.hub_sensor_timeout_ms` = value × 10 |
 | 9 | hub_pullback_timeout_ms | 5000 | `unload_buffer` `0x08004CBC` (`wait_buffer_state(0, 5000)`) | `timing.unload_buffer_timeout_ms` |
-| 10 | unload_sensor_timeout | 1000 | `0x08004E1A` in the parse-out path `0x08004DF2` | read-only (path not modeled yet) |
+| 10 | unload_sensor_timeout | 1000 | `0x08004E1A` in `0x08004DF2` | read-only: **dead code**, nothing calls `0x08004DF2` in stock 1.5.3 |
 | 11 | rfid_seek_speed | 160 | `0x08005A9E` | `speeds.rfid_seek` |
 | 12 | rfid_measure_speed | 120 | `0x08005AC0` | `speeds.rfid_measure` |
 | 13 | rfid_reposition_speed | 100 | `0x08005E8A` | `speeds.rfid_reposition` |
 | 14 | rfid_seek_move_ms | 800 | RFID locate | `timing.rfid_seek_move_ms` |
 | 15 | rfid_seek_settle_ms | 200 | RFID locate | `timing.rfid_seek_settle_ms` |
 | 16 | rfid_post_auth_wait_ms | 1000 | `0x08005E7A` | `timing.rfid_retry_reverse_ms` (reverse between read attempts) |
-| 17 | rfid_pre_measure_settle_ms | 10 | `0x08005A60` | read-only (not modeled yet) |
+| 17 | rfid_pre_measure_settle_ms | 400 (catalogue: 10) | `0x08005A60`, `mov.w r0, #0x190` at `0x08005A5C` | `timing.rfid_pre_read_settle_ms`; the stock value is 400 ms |
 | 18 | rfid_neighbor_detect_delay_ms | 400 | neighbor nudge `0x0800604A` (`mov.w r7, #0x190`) | `timing.rfid_neighbor_move_ms` |
 | 19 | rfid_neighbor_settle_ms | 100 | `0x08006076` (`movs r0, #0x64` before `rt_thread_mdelay`, after `feeder_stop_all`) | `timing.rfid_neighbor_settle_ms` |
 | 20 | feed_total_timeout_20ms_ticks | 1250 | stage 4 `0x08025D14` | `timing.feed_total_samples` |
@@ -57,15 +57,16 @@ against stock 1.5.3.
 | 22 | odometer_stall_20ms_ticks | 25 | stage 4 `0x08025CEE` | `timing.stall_samples` |
 | 23 | rfid_neighbor_retry_count | 3 | RFID locate | `timing.rfid_locate_attempts` |
 | 24 | reverse_detooth_timeout_ms | 1000 | `0x080038F0` (`< 0x3E9` ms blocked) | `supervision.detooth_after_ms` |
-| 25 | buffer_fill_timeout_ms | 30000 | `0x08004E62` (`wait_buffer_state(1, 30000)`, status 6) | read-only (parse-out path not modeled) |
-| 26 | transition_detect_timeout_ms | 300 | `pull_back_hub_pe` `0x080048CE` | read-only (not modeled yet) |
-| 27 | load_retry_count | 3 | pretension retry `0x08005616` | read-only (not modeled yet) |
+| 25 | buffer_fill_timeout_ms | 30000 | `0x08004E62` in `0x08004DF2` | read-only: **dead code**, as ID 10 |
+| 26 | transition_detect_timeout_ms | 300 | catalogue default matches the never-used retry mode of `pull_back_hub_pe` (`0x080048F8`); the live wait is 700 polls at `0x080048CE` | read-only until the site is agreed (k2-cfs-rfid-tools #47) |
+| 27 | load_retry_count | 3 | `0x08005616` | `timing.pretension_cycles`: the number of pretension in/out cycles |
 
 **Units.** `wait_hub_sensor(slot, n, level, debounce)` (`0x0800E85A`) counts
 **10 ms polls**, so IDs 8 and 10 are 7 s and 10 s by default, despite their
 `_ms` names in the host catalogue. IDs 20 and 22 are 20 ms odometer ticks.
 
-A read-only parameter answers GET and DESCRIBE (without the writable flag) and
+IDs 10 and 25 hook a routine with no caller, so they had no effect in stock
+either. A read-only parameter answers GET and DESCRIBE (without the writable flag) and
 refuses SET with status 1, so nothing is ever stored without an effect.
 
 ## 3. Motion interlock
