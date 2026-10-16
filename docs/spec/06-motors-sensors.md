@@ -28,6 +28,28 @@ inputs, a PWM channel per input, the last command, the direction and a monitor t
 - `feeder_run_pulse(slot, dir)`: wait 200 ms, run at full speed for 30 ms, stop.
   Used to relieve gear load before reversing.
 
+**Current monitor (per feeder, RT timer every 20 ms while the motor runs)** [code]
+
+1. Sample the motor's current-sense ADC with the scheduler locked:
+   `V = raw × 3.3 / 4096` (ADC0, 12 bit). Slot A uses channel 15, B 10, C 1, D 0.
+2. Keep the last 5 samples, a 100 ms window.
+3. **Blocked:** max − min of the window **< 0.05 V**. A running brushed motor shows
+   commutation ripple, a stalled one does not. This is the per-feeder `blocked`
+   flag the 100 ms supervisor reads.
+4. **Load band:** on the first full window, store the average as `starting_vol`.
+   - upper limit = starting + **0.2 V** (`thrust`, capped at 3.3 V);
+   - lower limit = starting − **0.1 V** (`resistance`, floored at 0).
+
+   Each later window classifies the load as above the upper limit, below the lower
+   limit, or in between.
+5. A PID pulls the measured value back toward the limit that was crossed. Gains:
+   - over the upper limit: kp 2, ki 8, kd 0;
+   - under the lower limit: kp 6, ki 160, kd 0 (`at8236_pid_set out… b…`).
+
+   The correction goes to the motor's speed callback (`feeder_pid_output`).
+6. Status for diagnostics: `feeder_curr_voltage`, `feeder_thrust_voltage`,
+   `feeder_resistance_voltage`, and `motor%d, average_vol, starting_vol` in debug mode.
+
 ## 2. Hub motor (BLDC, MS3791 driver)
 
 | Signal | Pin | Notes |
@@ -39,12 +61,21 @@ inputs, a PWM channel per input, the last command, the direction and a monitor t
 
 - `hub_forward(speed)` / `hub_reverse(speed)`: release the brake, set DIR, apply the speed command.
 - `hub_stop()`: set the brake and command 0.
-- **Speed loop**: a 40 ms RT timer computes the speed (rps) from the FG pulse
-  periods (ring buffer of 56 samples). A PID correction is added to the open-loop
-  command (`hub_target_speed`, `hub_curr_speed`, `hub_pid_output`).
-  PID gains are configurable (`ms3791_pid_set kp ki kd`). The controller state
-  resets on every stop.
-- The MS3791 reports **blocked** and **overload** conditions.
+- **Speed loop**: a 40 ms RT timer [code].
+  - Measured speed: FG pulses counted since the last tick, `rps = pulses × 25 / 6`.
+    That is **6 FG pulses per revolution**.
+  - Target: `rps = (command + trim) × 50 / 255`, so 255 means 50 rps (3000 rpm).
+  - PID kp **1.0**, ki **0.75**, kd 0 (adjustable with `ms3791_pid_set`). The output
+    0..255 becomes the active-low PWM duty.
+  - The controller state resets on every stop.
+- **Blocked** is computed in software; there is no driver fault pin [code]:
+  - with the hub commanded, every 40 ms tick without FG pulses decrements a counter
+    that starts at **20**;
+  - at 0 (about **0.8 s** without rotation) `blocked()` is true;
+  - any rotation re-arms the counter.
+- **Overload** is also computed: the last **56** PID outputs (≈ 2.2 s) are kept in a
+  ring. When more than **39** of them are saturated at 255 (≈ 71 %), the overload
+  flag is set. A stop clears it.
 
 ## 3. Hub odometer (MT6826 magnetic angle sensor)
 
@@ -92,8 +123,8 @@ most once per **11.1 s** window.
 
 | Function | Hardware | Behavior |
 | --- | --- | --- |
-| Temperature/humidity | AHT10/AHT30 (I2C on PC11/PC12) | Periodically read into the BOX_STATE bytes 0/1 (°C signed, %RH). |
-| Front display | segment LCD controller (CS/RD/WR/DAT), thread `lcd` | Shows humidity, box number (`slave_num`) and light on/off. |
+| Temperature/humidity | AHT10/AHT30 (software I2C on PC11/PC12) | Read **once per second by the `lcd` thread**, which stores °C (signed) and %RH for BOX_STATE bytes 0/1. |
+| Front display | HT1621-compatible segment driver: CS PC1, RD PC2, WR PC3, DATA PC4 (bidirectional); backlight PB0 | Thread `lcd`, 1 s period: shows temperature, humidity and the box index. In test mode all lines and the backlight toggle every second. Bus: command `100` + 9 bits; write `101` + 6-bit address + 16-bit words LSB first; read `110` + address, one bit per RD falling edge; WR low for 3 µs per bit. |
 | Slot indicators | two LEDs per slot: group A PB7/PB4/PB5/PB6, group B PC6..PC9 (`10-board-port.md` §6), thread `led` | Mode per slot set by `led_set_mode` (`0x0B`, keep-alive, events); see the table below. |
 | EEPROM | BL24Cxx (PE5/PE6) | Diagnostic records (motor-blocked dumps) and RFID usage data. |
 | Parameter database | internal flash pages (`gd32_flash`) | Key/value store with checksum; key 5 = version magic, key 6 = operating mode. Defaults are restored on checksum error. |

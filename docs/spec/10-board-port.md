@@ -37,12 +37,13 @@ Evidence:
 | Slot | IN1 | IN2 | Drive | Current sense |
 | --- | --- | --- | --- | --- |
 | A | PD3 (`0x33`) | PD2 (`0x32`) | GPIO on/off (no PWM device) [code] | PC5 / ADC_IN15 [pcb][str] |
-| B | PD1 (`0x31`) | PD0 (`0x30`) | GPIO on/off [code] | PC0 / ADC_IN10 [pcb]; the factory-test string says **PC1** [str], to be checked |
+| B | PD1 (`0x31`) | PD0 (`0x30`) | GPIO on/off [code] | **PC0 / ADC_IN10**: the motor record uses channel 10 [code][pcb]. The factory-test string `PC1` is a typo |
 | C | PD15 (`pwm5`) | PD14 (`pwm8`) | TIMER3 CH3 / CH2, TIMER3 remap (AFIO_PCF0 bit 12) [code] | PA1 / ADC_IN1 [pcb][str] |
 | D | PD13 (`pwm4`) | PD12 (`pwm3`) | TIMER3 CH1 / CH0 [code] | PA0 / ADC_IN0 [pcb][str] |
 
 PWM: 50 kHz (period 20 µs). The driving scheme is described in `06-motors-sensors.md` §1.
-Stock code that samples the current-sense ADC has not been found yet [res].
+Current sense: ADC0, 12 bit, 3.3 V reference. Each channel is sampled one-shot
+(enable, read, disable) every 20 ms by the feeder monitor (`0x0800FC80`) [code].
 
 ### Hub (BLDC, MS3791)
 
@@ -51,7 +52,8 @@ Stock code that samples the current-sense ADC has not been found yet [res].
 | PWM | PE13 (`pwm1`) | TIMER0 CH2, TIMER0 full remap (AFIO_PCF0 bits 7:6 = `11`), 20 kHz, active low [code] |
 | DIR | PE3 (`0x43`) | high = forward [code] |
 | BRAKE | PE4 (`0x44`) | high = brake [code] |
-| FG | PE11 (`0x4B`) | edge interrupt; pulse counter at `0x20004990` [code][res] |
+| FG | PE11 (`0x4B`) | edge interrupt; pulse counter at `0x20004990`; 6 pulses per revolution [code][res] |
+| Fault | – | none: blocked and overload are computed from FG and the PID output [code] |
 
 ## 4. Filament path sensors
 
@@ -70,7 +72,7 @@ Stock code that samples the current-sense ADC has not been found yet [res].
 | RFID reader 0 / 1 (FM176xx) | software I2C: SCL1 PB10 / SDA1 PB11, SCL2 PB8 / SDA2 PB9 [str] | which bus serves which reader [?]; antennas per `05-preload-rfid.md` §4 |
 | Temperature/humidity AHT30 | software I2C: SCL PC11, SDA PC12 [str] | |
 | EEPROM BL24Cxx | software I2C: SCL PE5, SDA PE6 [code][str] | diagnostic records, RFID usage data |
-| Front LCD (segment driver) | PC1, PC2, PC3, PC4 (PC4 is also read: data line) [code] | thread `lcd`; shows humidity, box index, light |
+| Front LCD (HT1621-compatible) | CS PC1, RD PC2, WR PC3, DATA PC4 [code] | protocol in `06-motors-sensors.md` §5 |
 | LCD backlight | **PB0** (`0x10`) [code] | configured by the LCD init; command `0x30` switches it |
 
 ## 6. Slot indicators
@@ -97,7 +99,7 @@ The reference CFS reads `hw_flag = 0` [hw].
 ## 8. Not yet mapped
 
 - clock tree set by the application (the loader configures the PLL);
-- ADC channel sequence and DMA for current sensing;
-- MS3791 blocked/overload signal pins;
+- LCD segment map (which segments form which digit);
+- indicator modes 10..13;
 - address straps `PIN_ADDRESS_A/B`, `PIN_BG_CTL`, `PIN_IO_POWER` (factory test only);
 - FM15L013 interface (absent on the reference board).
