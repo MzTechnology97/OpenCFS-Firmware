@@ -63,6 +63,33 @@ void Dispatcher::poll() {
     auto_.poll();
 }
 
+void Dispatcher::poll_background() {
+    background_ = true;
+    poll();
+    background_ = false;
+}
+
+bool Dispatcher::background_safe(uint8_t cmd) {
+    switch (static_cast<Cmd>(cmd)) {
+    case Cmd::KeepAlive:
+    case Cmd::RfidRecords:
+    case Cmd::RfidRemaining:
+    case Cmd::Buffer:
+    case Cmd::BoxState:
+    case Cmd::GetMode:
+    case Cmd::Version:
+    case Cmd::ModuleStatus:
+    case Cmd::GetEnvironment:
+    case Cmd::Echo:
+    case Cmd::UniqueId:
+    case Cmd::RuntimeConfig:  // SET/RESET are refused by the motion interlock anyway
+    case Cmd::TagInfo:
+        return true;
+    default:
+        return false;
+    }
+}
+
 void Dispatcher::reply_raw(uint8_t cmd, uint8_t status, const uint8_t* data, size_t len) {
     if (silent_) return;
     uint8_t buf[kMaxPayload + 6];
@@ -232,6 +259,10 @@ void Dispatcher::handle(const Frame& f) {
     }
     silent_ = f.addr == kAddrSilentBroadcast;
     reply_addr_ = f.addr == kAddrBoxBroadcast ? kAddrBoxBroadcast : address_;
+    if (background_ && !background_safe(f.cmd)) {
+        reply(f.cmd, Status::Busy);
+        return;
+    }
     const uint8_t* p = f.payload;
     int slot = 0;
     auto bad_mask = [&] { reply(f.cmd, Status::InvalidParam); };

@@ -240,7 +240,7 @@ The reference CFS reads `hw_flag = 0` [hw].
 
 ## 8. Not yet mapped
 
-- clock tree set by the application (the loader configures the PLL);
+- clock tree: resolved, 120 MHz from HXTAL/2 × 30 (`13-application.md` §2);
 - address straps `PIN_ADDRESS_A/B`, `PIN_BG_CTL`, `PIN_IO_POWER` (factory test only);
 - FM15L013 interface (absent on the reference board);
 - J6 pins 2 and 7, **PE15** and **PB3** [fn]: no direct use in the stock code

@@ -14,7 +14,7 @@ void RfidScanner::nudge_neighbor_away(int slot) {
     hw_.feeders.run(n, Dir::Reverse, cfg_.speeds.feeder_reverse);
     hw_.clock.sleep_ms(cfg_.timing.rfid_neighbor_move_ms);
     hw_.feeders.stop(n);
-    hw_.clock.sleep_ms(800);
+    hw_.clock.sleep_ms(cfg_.timing.rfid_neighbor_settle_ms);
 }
 
 bool RfidScanner::locate(int slot) {

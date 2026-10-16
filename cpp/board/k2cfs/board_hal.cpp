@@ -465,8 +465,7 @@ Hardware Board::hardware() {
                     settings_, link_, system_};
 }
 
-void Board::tick_1ms() {
-    const uint32_t now = clock.now_ms();
+void Board::tick_1ms(uint32_t now) {
     if (now % 20 == 0) {
         odometer_.poll();  // stock samples the encoder every 20 ms
         feeders_.tick_20ms();

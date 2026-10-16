@@ -195,8 +195,10 @@ public:
     Board();
     void init();
     Hardware hardware();
-    // 1 ms housekeeping: monitors, speed loop, odometer and LEDs.
-    void tick_1ms();
+    // 1 ms housekeeping for millisecond `now`: monitors, speed loop, odometer, LEDs.
+    void tick_1ms(uint32_t now);
+    // Temperature/humidity refresh (stock `lcd` thread, 1 s). Sleeps ~80 ms.
+    void update_environment() { env_.update(clock); }
     // IRQ hooks.
     void on_usart1_irq() { usart_.on_irq(); }
     void on_exti_fg() {

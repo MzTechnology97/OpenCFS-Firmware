@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "cfs/aes128.hpp"
+#include "cfs/app.hpp"
 #include "cfs/creality_tag.hpp"
 #include "cfs/dispatcher.hpp"
 #include "cfs/feeder.hpp"
@@ -821,6 +822,101 @@ void test_runtime_config_interlock() {
           rig.cfg.speeds.hub_transition == 200 && rig.cfg.timing.hub_sensor_timeout_ms == 7000);
 }
 
+// ---- the cooperative application loop (docs/13) ----
+struct AppRig {
+    sim::World w;
+    Hardware hw = w.hardware();
+    cfs::App app{hw, 1};
+    std::function<void()> extra;  // test observer, runs before background()
+    AppRig() {
+        app.init();
+        w.tick_hook = [this] {
+            if (extra) extra();
+            app.background();  // what the board's clock idle hook does
+        };
+    }
+    // Runs main-loop passes for `ms` of simulated time.
+    void run(uint32_t ms) {
+        const uint32_t end = w.now_ms() + ms;
+        while (static_cast<int32_t>(w.now_ms() - end) < 0) {
+            app.loop_once();
+            w.sleep_ms(1);
+        }
+    }
+    std::vector<uint8_t> request(uint8_t cmd, std::vector<uint8_t> payload) {
+        w.tx.clear();
+        w.inject(w.now_ms(), frame(1, cmd, payload));
+        app.loop_once();
+        auto frames = w.sent_frames();
+        return frames.empty() ? std::vector<uint8_t>{} : frames.back();
+    }
+};
+
+void test_app_print_refill_and_background() {
+    AppRig r;
+    r.w.insert(0);
+    CHECK(status_of(r.request(0x10, {0x01, 0, 0})) == 0);
+    CHECK(r.app.feeder.stage1_hub_until_stop() == Status::Ok);
+    CHECK(status_of(r.request(0x04, {0x01, 0})) == 0);
+    CHECK(r.app.box.state() == BoxState::Print);
+
+    // Printing: the buffer edges reach the print tracker from the loop itself.
+    r.w.consume(5.0f);
+    int empties = 0;
+    bool injected = false;
+    BufferState last = r.w.buffer();
+    r.extra = [&] {
+        const BufferState b = r.w.buffer();
+        if (b != last && b == BufferState::Empty) {
+            ++empties;
+            if (!injected) {  // host traffic while a refill is starting
+                r.w.tx.clear();
+                r.w.inject(r.w.now_ms(), frame(1, 0x0A, {}));
+                r.w.inject(r.w.now_ms(), frame(1, 0x06, {0x01, 0x01, 0x00}));
+                injected = true;
+            }
+        }
+        last = b;
+    };
+    r.run(30000);
+    r.extra = nullptr;
+    CHECK(empties > 0 && r.app.box.state() == BoxState::Print);
+    // Both injected commands were answered by the background path: the status query
+    // normally, the motor command BUSY.
+    bool state_ok = false, feeder_busy = false;
+    for (const auto& f : r.w.sent_frames()) {
+        if (f.size() > 4 && f[4] == 0x0A && f[3] == 0) state_ok = true;
+        if (f.size() > 4 && f[4] == 0x06 && f[3] == 0x03) feeder_busy = true;
+    }
+    CHECK(state_ok && feeder_busy);
+    CHECK(status_of(r.request(0x04, {0x00, 1})) == 0 && r.app.box.state() == BoxState::Idle);
+}
+
+void test_app_supervision_during_blocking_routine() {
+    AppRig r;
+    r.w.insert(0);
+    CHECK(status_of(r.request(0x10, {0x01, 0, 0})) == 0);
+    CHECK(r.app.feeder.stage1_hub_until_stop() == Status::Ok);  // filament at the hub sensor
+    CHECK(status_of(r.request(0x04, {0x01, 0})) == 0);
+    r.w.hub_blocked = true;
+    r.app.print.on_buffer_empty();
+    r.app.loop_once();  // the refill session blocks here; supervision runs in background()
+    CHECK(r.app.supervisor.detooth_count() > 0);
+    CHECK(r.app.box.state() == BoxState::Error);
+}
+
+void test_app_insert_event() {
+    AppRig r;
+    BoxState seen = BoxState::Idle;
+    r.extra = [&] {
+        if (r.app.box.state() != BoxState::Idle) seen = r.app.box.state();
+    };
+    r.w.insert(2);
+    r.run(300);  // 6 samples of 20 ms debounce, then the preload picks the slot
+    CHECK(r.app.preload.inlet(2));
+    CHECK(seen == BoxState::Preload);
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -847,6 +943,9 @@ int main() {
         {"tag_info_command", test_tag_info_command},
         {"runtime_config_protocol", test_runtime_config_protocol},
         {"runtime_config_interlock", test_runtime_config_interlock},
+        {"app_print_refill_and_background", test_app_print_refill_and_background},
+        {"app_supervision_during_blocking", test_app_supervision_during_blocking_routine},
+        {"app_insert_event", test_app_insert_event},
     };
     for (const Test& t : tests) {
         const int before = g_failed;

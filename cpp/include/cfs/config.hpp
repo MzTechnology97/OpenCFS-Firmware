@@ -53,6 +53,7 @@ struct Timing {
     // RFID locate / read (docs/05-preload-rfid.md section 5).
     uint32_t rfid_locate_attempts = 3;
     uint32_t rfid_neighbor_move_ms = 400;
+    uint32_t rfid_neighbor_settle_ms = 100;  // pause after a nudge (stock 0x08006076)
     uint32_t rfid_seek_move_ms = 800;
     uint32_t rfid_seek_settle_ms = 200;
     uint32_t rfid_retry_reverse_ms = 1000;

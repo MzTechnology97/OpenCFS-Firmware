@@ -73,7 +73,7 @@ const RuntimeConfig::Param RuntimeConfig::kParams[kCount] = {
     P{U16, W | ADV | RF, 1000, 100, 5000, CFS_U32(timing.rfid_retry_reverse_ms)}, // 16
     P{U16, ADV | RF, 10, 1, 1000, CFS_NOT_MODELED},           // 17 rfid_pre_measure_settle
     P{U16, W | ADV | RF, 400, 50, 2000, CFS_U32(timing.rfid_neighbor_move_ms)},   // 18
-    P{U16, ADV | RF, 100, 10, 1000, CFS_NOT_MODELED},         // 19 rfid_neighbor_settle
+    P{U16, W | ADV | RF, 100, 10, 1000, CFS_U32(timing.rfid_neighbor_settle_ms)},  // 19
     P{U16, W | ADV | SAFE, 1250, 250, 3000, CFS_U32(timing.feed_total_samples)},  // 20 (20 ms ticks)
     P{U16, W | ADV | SAFE, 3000, 500, 10000, CFS_U32(timing.recovery_timeout_ms)},  // 21
     P{U16, W | ADV | SAFE, 25, 5, 100, CFS_U32(timing.stall_samples)},           // 22 (20 ms ticks)

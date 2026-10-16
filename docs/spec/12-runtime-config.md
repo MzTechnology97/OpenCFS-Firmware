@@ -50,8 +50,8 @@ against stock 1.5.3.
 | 15 | rfid_seek_settle_ms | 200 | RFID locate | `timing.rfid_seek_settle_ms` |
 | 16 | rfid_post_auth_wait_ms | 1000 | `0x08005E7A` | `timing.rfid_retry_reverse_ms` (reverse between read attempts) |
 | 17 | rfid_pre_measure_settle_ms | 10 | `0x08005A60` | read-only (not modeled yet) |
-| 18 | rfid_neighbor_detect_delay_ms | 400 | neighbor nudge | `timing.rfid_neighbor_move_ms` |
-| 19 | rfid_neighbor_settle_ms | 100 | `0x08005E58` | read-only: OpenCFS pauses 800 ms after a nudge (`05-preload-rfid.md` §5); to reconcile |
+| 18 | rfid_neighbor_detect_delay_ms | 400 | neighbor nudge `0x0800604A` (`mov.w r7, #0x190`) | `timing.rfid_neighbor_move_ms` |
+| 19 | rfid_neighbor_settle_ms | 100 | `0x08006076` (`movs r0, #0x64` before `rt_thread_mdelay`, after `feeder_stop_all`) | `timing.rfid_neighbor_settle_ms` |
 | 20 | feed_total_timeout_20ms_ticks | 1250 | stage 4 `0x08025D14` | `timing.feed_total_samples` |
 | 21 | feed_recovery_timeout_ms | 3000 | stage 4 recovery | `timing.recovery_timeout_ms` |
 | 22 | odometer_stall_20ms_ticks | 25 | stage 4 `0x08025CEE` | `timing.stall_samples` |

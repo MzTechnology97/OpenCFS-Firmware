@@ -86,8 +86,10 @@ spool revolution.
 1. **Locate the tag**
    - Up to 3 attempts. The box mostly feeds or rewinds the *neighbor* slot so its
      tag leaves the shared field, and makes small moves of the slot itself.
-   - If several tags are seen, the neighbor spool is rotated away: 400 ms moves
-     with 800 ms pauses, up to 3 times.
+   - If several tags are seen, the neighbor spool is rotated away: while its tag is
+     still detected, feeder reverse at 255 for 400 ms, stop all feeders, wait
+     100 ms, up to 3 times (`0x0800604A`..`0x08006080`; confirmed independently in
+     k2-cfs-rfid-tools #47).
    - Then the box feeds the filament up to the hub (`feed_top_to_hub`).
    - If the tag is still not seen: hub forward at speed 160 for 800 ms, then stop
      for 200 ms, up to 3 times.

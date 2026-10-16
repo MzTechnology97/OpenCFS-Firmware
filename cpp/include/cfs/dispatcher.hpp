@@ -26,6 +26,10 @@ public:
 
     // Reads every available byte and executes complete frames.
     void poll();
+    // Same, while another routine (preload, print refill) blocks the main loop: only
+    // commands that never start motion run; the others answer BUSY (docs/13).
+    void poll_background();
+    static bool background_safe(uint8_t cmd);
     // Executes one decoded frame (also used by tests).
     void handle(const Frame& f);
 
@@ -63,6 +67,7 @@ private:
     uint8_t address_;
     uint8_t reply_addr_ = 0;
     bool silent_ = false;
+    bool background_ = false;
     Status stage4_result_ = Status::Ok;
     bool loading_ = false;
     int loading_slot_ = -1;
