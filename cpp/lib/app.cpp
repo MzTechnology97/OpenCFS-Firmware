@@ -15,6 +15,7 @@ App::App(Hardware& hw, uint8_t address)
 
 void App::init() {
     disp.set_scanner(&scanner);
+    disp.set_preload(&preload);
     disp.set_usage(&usage);
     scanner.set_usage(&usage);
     preload.set_usage(&usage);

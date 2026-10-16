@@ -71,7 +71,9 @@ public:
     bool read_on_insert = true;
     uint8_t one_shot_event = 0;  // BOX_STATE byte 2 (0x80 | code when fresh)
     uint8_t box_index = 0;       // set through 0xEB/0x51 (front display)
-    uint8_t option_0f = 0;
+    // Command 0x0F (stock BOX_OPER_STATE + 8): 1 pauses insertion handling
+    // (pretension and RFID read), 0 resumes it (stock 0x080053B0).
+    bool preload_paused = false;
     uint8_t display_values[2] = {};
     // Module init results reported by 0x15, in stock order:
     // EEPROM, temperature/humidity sensor, odometer, buffer, RFID reader 0, RFID reader 1.

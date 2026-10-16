@@ -37,6 +37,8 @@ public:
     uint8_t address() const { return address_; }
     // Enables forced RFID reads (0x0D sub 2/3); they run synchronously like stock.
     void set_scanner(RfidScanner* s) { scanner_ = s; }
+    // Enables forced preload (0x0D sub 2/3).
+    void set_preload(Preload* p) { preload_ = p; }
     // Enables usage accounting hooks (print start/end, retract).
     void set_usage(UsageManager* u) { usage_ = u; }
 
@@ -61,6 +63,7 @@ private:
     Feeder& feeder_;
     PrintTracker& print_;
     RfidScanner* scanner_ = nullptr;
+    Preload* preload_ = nullptr;
     UsageManager* usage_ = nullptr;
     AutoAddress auto_;
     Receiver rx_;

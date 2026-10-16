@@ -103,15 +103,15 @@ Sizes are payload bytes (frame `len` = size + 3).
 | `0x0C` | – | 1: mode | Current operating mode (database key 6): 0 = standard, other values = aging/test modes. |
 | `0x14` | – | 22: ASCII | `"153"` (application version) followed by the 19-character serial number. |
 | `0x15` | – | 16 | Module init results: six bytes `((i+1) << 4) \| ok[i]` for, in order, EEPROM, temperature/humidity sensor, odometer, buffer, RFID reader 0, RFID reader 1; then ten zero bytes. These are the same flags the boot log prints (`eeprom_init_flag` … `rfid_init_flag[1]`). |
-| `0x50` | 1: mode | OK / `0x03` | Same as the current mode → status 3. Otherwise store it (database key 6, persisted), reply OK, reset the MCU after 100 ms so the new mode starts. |
+| `0x50` | 1: mode | OK / `0x03` | Same as the current mode → status 3. Otherwise store it (database key 6, persisted), reply OK, reset the MCU after 100 ms so the new mode starts. Stock modes (`switch_mode` `0x080096CA`): 0 standard, 1 PCB test (`0x08012BD8`), 2 buffer aging (`0x08009EC4`), 6 RFID authentication test, 7..0x14+ chained factory/aging tests, all running unattended at boot. **OpenCFS accepts only mode 0** (status 1 otherwise) and never runs these tests. |
 | `0x51` | 1: value | none | Only via `0xEB`; stores a box index used by the front display. |
 | `0x52` | – | **cmd 0x53**, 2: `[temp, hum]` | Environment readout (same units as BOX_STATE). |
-| `0x53` | 2: `a, b` | none | Stores two display values sent by the host (**semantics unverified**). |
+| `0x53` | 2: `temp, hum` | none | The host's reference temperature and humidity (`0x20000034/35`). Read only by the factory sensor test (`0x080083A6`), which fails beyond ±2 °C / ±5 %RH of the box's AHT reading. |
 | `0x55` | 1: n | 1: n+1 | Echo test (`0xFF` wraps to 0). |
 | `0x56` | – | OK | Reset the MCU after 100 ms. |
 | `0x5B` | – | 8 | MCU unique ID (`0x1FFFF7E8`): word 0, then word 1 AND word 2 (little-endian). |
 | `0x5C` | 16 | 16 | Secure-element challenge/response (FM15L013 path, **under analysis**). |
-| `0x5D` | – | – | Enter the factory PCB test mode (state TEST). |
+| `0x5D` | – | – | Stock: `main_pcb_test_mode` (`0x08007C0E`), the factory PCB test (state TEST). **OpenCFS answers status 1** (not provided). |
 
 ### Sensors
 
@@ -157,8 +157,8 @@ Older CFS firmware 1.1.3 returns a 4-byte variant
 | `0x07` | 1: sub | OK / INVALID / BUSY | Manual hub motor: 1 = forward, 2 = reverse (configured speeds), 0 = stop. |
 | `0x09` | 3: target, dir, value | OK, 1 byte `0` | Set a manual speed: target 0 = feeder, 1 = hub; dir 0 = forward, 1 = reverse. |
 | `0x0B` | 2: `mask`, mode | OK | Set the slot indicator mode for the slot. |
-| `0x0D` | 2: `mask`, sub | OK / error | RFID/preload control. 0 = disable preload on insertion, 1 = enable (default at boot). Pretension still runs; only the hub check and RFID read are skipped. 2 = forced read of the masked slots, synchronous; it rotates the spool and may take minutes per slot, which is why the host waits 190 s per slot. 3 = forced-read variant (**difference unverified**). |
-| `0x0F` | 1: 0/1 | OK / INVALID | Stores a boolean option (meaning **unverified**). |
+| `0x0D` | 2: `mask`, sub | OK / error | RFID/preload control. 0 = disable preload on insertion, 1 = enable (default at boot). Pretension still runs; only the hub check and RFID read are skipped. 2 = forced preload of the masked slots, synchronous: from IDLE the hub is freed first, then each masked slot with filament runs the insertion sequence with read-on-insert temporarily on (pretension + RFID read); it may take minutes per slot, which is why the host waits 190 s per slot. 3 = the same with read-on-insert temporarily off (pretension only). Empty slots are skipped. Only from IDLE/PRELOAD, else BUSY (`0x08004EC4`, `0x08004E80`). |
+| `0x0F` | 1: 0/1 | OK / INVALID | Pause (1) or resume (0) insertion handling: the preload runs only in IDLE/PRELOAD **and** with this flag 0 (`BOX_OPER_STATE + 8`, read at `0x080053B0`). Insertions seen while paused are dropped. |
 | `0x10` | 3: `mask`, stage, arg | stage status | LOAD stage machine (`cmd_feed_process_2`), see `04-feeder.md`. |
 | `0x11` | 2: `mask`, phase | phase status | UNLOAD: phase 0 empties the buffer, phase 1 retracts the slot to its inlet. Phase 1 also closes the slot's RFID usage accounting. |
 | `0x12` | 5: `mask`, mode, speed, dist_hi, dist_lo | status | Feed a given distance (mm, big-endian u16) at a speed (`cmd_feed_process_3`). |

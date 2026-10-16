@@ -359,23 +359,25 @@ void Dispatcher::handle(const Frame& f) {
         Status st = Status::Ok;
         if (p[1] == 0 || p[1] == 1) {
             box_.read_on_insert = p[1] == 1;
-        } else if ((p[1] == 2 || p[1] == 3) && scanner_ && p[0] && p[0] <= 0x0F) {
-            // Forced read of every masked slot, one at a time, while the box is idle.
-            if (box_.state() != BoxState::Idle) {
+        } else if ((p[1] == 2 || p[1] == 3) && preload_ && p[0] && p[0] <= 0x0F) {
+            // Stock 0x08004EC4: only from IDLE/PRELOAD; from IDLE free the hub first;
+            // then every masked slot with filament runs the insertion sequence,
+            // with the RFID read for sub 2 and pretension only for sub 3. Empty
+            // slots are skipped.
+            if (box_.state() != BoxState::Idle && box_.state() != BoxState::Preload) {
                 st = Status::Busy;
             } else {
                 for (int s = 0; s < kSlotCount && st == Status::Ok; ++s) {
-                    if (!(p[0] & (1u << s))) continue;
-                    if (!hw_.sensors.inlet_present(s)) {
-                        st = Status::UnloadNoFilament;
-                        break;
-                    }
+                    if (box_.state() == BoxState::Idle && hw_.sensors.hub_present(s)) st = feeder_.retract_slot(s);
+                }
+                for (int s = 0; s < kSlotCount && st == Status::Ok; ++s) {
+                    if (!(p[0] & (1u << s)) || !hw_.sensors.inlet_present(s)) continue;
                     loading_ = true;
                     loading_slot_ = s;
-                    st = scanner_->scan(s).status;
+                    preload_->force(s, p[1] == 2);
                     loading_ = false;
                 }
-                box_.finish(st);
+                if (st != Status::Ok) box_.fail(st);
             }
         } else {
             st = Status::InvalidParam;
@@ -399,7 +401,7 @@ void Dispatcher::handle(const Frame& f) {
     case Cmd::Option0F:
         if (!check_len(f, 1)) break;
         if (p[0] > 1) { reply(f.cmd, Status::InvalidParam); break; }
-        box_.option_0f = p[0];
+        box_.preload_paused = p[0] == 1;
         reply(f.cmd, Status::Ok);
         break;
     case Cmd::Load:
@@ -459,6 +461,12 @@ void Dispatcher::handle(const Frame& f) {
         break;
     case Cmd::SetMode:
         if (!check_len(f, 1)) break;
+        // Stock modes 1..0x14+ run unattended factory and aging tests at the next
+        // boot (switch_mode, 0x080096CA). OpenCFS never stores them.
+        if (p[0] != 0) {
+            reply(f.cmd, Status::InvalidParam);
+            break;
+        }
         if (p[0] == hw_.settings.mode()) {
             reply(f.cmd, Status::Busy);
             break;
@@ -490,6 +498,11 @@ void Dispatcher::handle(const Frame& f) {
         reply(f.cmd, Status::Ok, v, n);
         break;
     }
+    case Cmd::FactoryTest:
+        // Stock: main_pcb_test_mode (0x08007C0E), a factory PCB test that drives the
+        // motors. Not provided by OpenCFS.
+        reply(f.cmd, Status::InvalidParam);
+        break;
     case Cmd::BoxIndex:
         if (f.len == 1 && f.addr == kAddrBoxBroadcast) box_.box_index = p[0];
         break;  // never answered

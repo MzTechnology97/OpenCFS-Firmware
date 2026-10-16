@@ -81,6 +81,8 @@ public:
     void sample();
     // One step of the preload state machine (may block during operations).
     void step();
+    // Command 0x0D sub 2 (read = true) / sub 3 (pretension only) for one slot.
+    void force(int slot, bool read);
 
     bool inlet(int slot) const { return inlet_[slot].level(); }
     // Removal of a spool resets its usage record.

@@ -158,8 +158,21 @@ void Preload::init() {
     }
 }
 
+// Stock 0x080053B0: IDLE or PRELOAD, and not paused by command 0x0F.
 bool Preload::allowed() const {
-    return box_.state() == BoxState::Idle || box_.state() == BoxState::Preload;
+    return (box_.state() == BoxState::Idle || box_.state() == BoxState::Preload) && !box_.preload_paused;
+}
+
+// Forced preload of one slot (command 0x0D sub 2/3, stock 0x08004E80): run the
+// insertion sequence with read-on-insert temporarily set to `read`.
+void Preload::force(int slot, bool read) {
+    const bool saved = box_.read_on_insert;
+    box_.read_on_insert = read;
+    if (read) box_.enter(BoxState::Preload);
+    pretension(slot);
+    if (read && !any_hub_loaded() && hw_.sensors.inlet_present(slot)) scanner_.scan(slot);
+    finish(slot);
+    box_.read_on_insert = saved;
 }
 
 void Preload::enqueue(int slot) {

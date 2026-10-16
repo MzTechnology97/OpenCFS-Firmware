@@ -63,6 +63,7 @@ struct Rig {
 
     explicit Rig(uint8_t address = 1) : disp(hw, box, cfg, feeder, print, address) {
         disp.set_scanner(&scanner);
+        disp.set_preload(&preload);
         disp.set_usage(&usage);
         scanner.set_usage(&usage);
         preload.set_usage(&usage);
@@ -139,9 +140,12 @@ void test_dispatcher_contract() {
     // 0x52 replies with opcode 0x53.
     r = rig.request(0x52, {});
     CHECK(r[4] == 0x53 && r[5] == 29 && r[6] == 38);
-    // Mode unchanged → BUSY; changed → OK and scheduled reset.
+    // Mode unchanged → BUSY; factory modes refused; back to standard from a mode a
+    // stock firmware stored → OK and scheduled reset.
     CHECK(status_of(rig.request(0x50, {0})) == 0x03);
-    CHECK(status_of(rig.request(0x50, {2})) == 0x00 && rig.w.reset_at > 0);
+    CHECK(status_of(rig.request(0x50, {2})) == 0x01 && rig.w.reset_at == 0);
+    rig.w.set_mode(2);
+    CHECK(status_of(rig.request(0x50, {0})) == 0x00 && rig.w.reset_at > 0 && rig.w.mode() == 0);
 }
 
 void test_slot_events_in_box_state() {
@@ -941,6 +945,63 @@ void test_pretension_cycles() {
     }
 }
 
+// 0x0F pauses insertion handling (stock 0x080053B0); 0x0D sub 3 = forced
+// pretension only, sub 2 = pretension + RFID read (stock 0x08004EC4/0x08004E80).
+void test_preload_pause_and_forced_preload() {
+    {
+        AppRig r;
+        CHECK(status_of(r.request(0x0F, {1})) == 0 && r.app.box.preload_paused);
+        int rises = 0;
+        bool last = false;
+        r.extra = [&] {
+            const bool now = r.hw.sensors.hub_present(0);
+            if (now && !last) ++rises;
+            last = now;
+        };
+        r.w.insert(0);
+        r.run(1500);
+        CHECK(rises == 0);  // paused: no pretension
+        CHECK(status_of(r.request(0x0F, {0})) == 0);
+        r.run(1500);
+        CHECK(rises == 0);  // an insertion seen while paused is dropped, as stock
+        r.w.remove(0);
+        r.run(500);
+        r.w.insert(0);
+        r.run(3000);
+        CHECK(rises == 3);  // resumed: a new insertion is handled
+        CHECK(status_of(r.request(0x0F, {2})) == 1);
+    }
+    for (uint8_t sub : {static_cast<uint8_t>(3), static_cast<uint8_t>(2)}) {
+        AppRig r;
+        r.app.box.read_on_insert = false;  // inserted silently: only pretension now
+        r.w.insert(1);
+        r.run(3000);
+        int rises = 0;
+        bool last = false, preload_seen = false;
+        r.extra = [&] {
+            const bool now = r.hw.sensors.hub_present(1);
+            if (now && !last) ++rises;
+            last = now;
+            if (r.app.box.state() == BoxState::Preload) preload_seen = true;
+        };
+        // Slots 0 and 1 masked; slot 0 is empty and skipped without error.
+        const auto reply = r.request(0x0D, {0x03, sub});
+        CHECK(status_of(reply) == 0);
+        CHECK(rises >= 3);                     // the pretension cycles ran
+        CHECK(preload_seen == (sub == 2));     // only sub 2 reads the tag
+        CHECK(r.app.box.read_on_insert == false);  // restored afterwards
+        CHECK(r.app.box.state() == BoxState::Idle);
+    }
+}
+
+// Factory/aging modes are refused: never stored, never started (docs/03).
+void test_factory_modes_refused() {
+    Rig rig;
+    CHECK(status_of(rig.request(0x50, {2})) == 1 && rig.w.mode() == 0);
+    CHECK(status_of(rig.request(0x50, {0})) == 3);  // already standard, as stock
+    CHECK(status_of(rig.request(0x5D, {})) == 1);
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -971,6 +1032,8 @@ int main() {
         {"app_supervision_during_blocking", test_app_supervision_during_blocking_routine},
         {"app_insert_event", test_app_insert_event},
         {"pretension_cycles", test_pretension_cycles},
+        {"preload_pause_and_forced", test_preload_pause_and_forced_preload},
+        {"factory_modes_refused", test_factory_modes_refused},
     };
     for (const Test& t : tests) {
         const int before = g_failed;
