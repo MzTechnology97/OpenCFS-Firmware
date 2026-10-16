@@ -26,7 +26,8 @@ code. How it was produced, honestly stated:
 | `auto_address.*` | A0–A3 enumeration (random discovery back-off, triple assign reply) |
 | `usage.*` | filament usage accounting with live remaining-percent updates while printing |
 | `supervisor.*` | blocked/overload supervision, reverse detooth, 10 s safety stop |
-| `board/k2cfs/` | GD32F303 board port: own register map, GPIO/PWM/USART/ADC/SPI/soft-I2C, and HAL drivers (feeders with the ripple stall detector, hub speed PID with blocked/overload, sensors, MT6826, AHT30, LEDs, RS-485). Compiled as objects only. |
+| `param_store.*` | stock parameter page codec (CRC-16/XMODEM, keys 5 and 6, load policy) |
+| `board/k2cfs/` | GD32F303 board port: own register map, GPIO/PWM/USART/ADC/SPI/soft-I2C, and HAL drivers (GPIO feeders with the ripple stall detector, hub speed PID with blocked/overload, sensors, MT6826S with the stock framing, AHT30, LEDs, RS-485, stock-compatible flash parameter page). Compiled as objects only. |
 | `sim/` | deterministic filament-path simulator implementing the HAL |
 | `tests/` | host tests (97 checks) |
 
@@ -60,7 +61,7 @@ Missing:
 - `0x5C` (secure-element challenge) and `0x5D` (factory test);
 - the K2-OpenHost `0x57` API;
 - LED/LCD;
-- in the board port: startup code, linker script and clock tree (no ELF/BIN by repository policy), the FM176xx RFID driver, the flash parameter store, and hardware confirmation of the MT6826 SPI framing and feeder direction.
+- in the board port: startup code, linker script and clock tree (no ELF/BIN by repository policy), the FM17622 RFID driver, and hardware confirmation of the feeder direction and the flash parameter writes. The MT6826S framing is confirmed by the stock code and a public capture, not yet on our own board.
 
 **Nothing here produces a flashable image.** The repository's release gates
 (`docs/ROADMAP.md`) apply unchanged.

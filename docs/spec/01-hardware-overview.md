@@ -19,7 +19,7 @@ Evidence tags used in this document:
 | Loader (Creality, RS-485) | `0x08000000..0x08002FFF` | Seen in the public 2025 full-flash dump (SHA-256 `58b8b908…c125`, not stored here). Its own vector table sits at `0x08000000` with reset `0x080005B9`, and it references the app base `0x08003000` at `0x08000AA4`, `0x08001360` and `0x08001A88` [res]. The dump's app is an older build (`cfs0_000_108`, reset `0x08015B21`). The loader carries the boot version string `cfs0_050_G32`, the same `boot_ver` the analysed printer reports. It is very likely the same loader release, but the installed one has not been read back. |
 | Application | `0x08003000..0x0802E7DC` (v3.22) | linked at `0x08003000`, vector table at start [res][code] |
 | Build policy stop | `0x0802E800` | A 2 KiB page boundary where the v3.23 prototype ends. It is a conservative K2-OpenHost policy limit, **not** a proven maximum of the loader [res] |
-| Persistence candidate | `0x0807F800` (last 2 KiB page) | pointer table at `0x08036D10` region in old coordinates [res] |
+| Parameter page | `0x0807F800` (last 2 KiB page) | 16-byte key/value record with CRC-16; layout in `10-board-port.md` §1 [code] |
 | SRAM RW (init data) | `0x20000000..0x20000BC3` | 3012 bytes, Keil scatter-compressed at `0x0802DB6C` [res][code] |
 | SRAM ZI | `0x20000BC4..0x20006EE7` | 25380 bytes |
 | Main stack top / heap start | `0x20006EE8` | heap start moved to `0x20006F28` by v3.19+ [res] |

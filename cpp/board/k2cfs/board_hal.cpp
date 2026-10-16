@@ -36,17 +36,17 @@ void Feeders::init() {
     }
 }
 
-// Stock GPIO drive (0x08010054): direction 0 sets input +4 high and +5 low,
-// direction 1 the opposite, speed 0 sets both high (brake). Any non-zero speed is
-// full on. Which way the spool turns for direction 0 is not verified on hardware.
+// Stock GPIO drive (0x08010054): direction 0 sets record +4 (IN2) high and +5 (IN1)
+// low, direction 1 the opposite, speed 0 sets both high (brake). Any non-zero speed
+// is full on. Which way the spool turns for direction 0 is not verified on hardware.
 void Feeders::run(int slot, Dir dir, uint8_t speed) {
     if (speed == 0) {
         stop(slot);
         return;
     }
     const bool dir0 = dir == Dir::Forward;
-    pin_write(pins::kFeederIn1[slot], dir0);
-    pin_write(pins::kFeederIn2[slot], !dir0);
+    pin_write(pins::kFeederIn2[slot], dir0);
+    pin_write(pins::kFeederIn1[slot], !dir0);
     if (!running_[slot]) {
         running_[slot] = true;
         fill_[slot] = 0;
@@ -193,10 +193,12 @@ BufferState Sensors::buffer() {
 // ---- MT6826 ---------------------------------------------------------------------------
 // SPI framing assumed from the MagnTek MT68xx family (4-bit command + 12-bit address):
 // read 0x3, write 0x6; angle in registers 0x003..0x004; user ID at 0x001.
-// NOT verified against the CFS: confirm with a logic analyzer before relying on it.
+// Framing matches the stock driver (0x0800CC20 / 0x0800CC66 / 0x0800CCFC) and a
+// public logic-analyzer capture of a running CFS (docs/spec/10 section 5): command
+// nibble + 12-bit address, data follows in the same CS window, mode 3.
 namespace {
 constexpr uint8_t kCmdRead = 0x3, kCmdWrite = 0x6;
-constexpr uint16_t kRegUserId = 0x001, kRegAngleHi = 0x003, kRegAngleLo = 0x004;
+constexpr uint16_t kRegUserId = 0x001, kRegAngle = 0x003;
 }  // namespace
 
 uint8_t Mt6826Odometer::read_reg(uint16_t addr) {
@@ -216,10 +218,15 @@ void Mt6826Odometer::write_reg(uint16_t addr, uint8_t value) {
     pin_write(pins::kOdoCs, true);
 }
 
+// One burst read of 0x003..0x004 (stock: 30 03 00 00), 15-bit angle = raw16 >> 1.
 uint16_t Mt6826Odometer::read_angle() {
-    const uint16_t hi = read_reg(kRegAngleHi);
-    const uint16_t lo = read_reg(kRegAngleLo);
-    return static_cast<uint16_t>(((hi << 7) | (lo >> 1)) & 0x7FFF);
+    pin_write(pins::kOdoCs, false);
+    spi_.transfer(static_cast<uint8_t>((kCmdRead << 4) | ((kRegAngle >> 8) & 0xF)));
+    spi_.transfer(static_cast<uint8_t>(kRegAngle));
+    const uint16_t hi = spi_.transfer(0);
+    const uint16_t lo = spi_.transfer(0);
+    pin_write(pins::kOdoCs, true);
+    return static_cast<uint16_t>(((hi << 8) | lo) >> 1);
 }
 
 bool Mt6826Odometer::init() {
@@ -228,7 +235,7 @@ bool Mt6826Odometer::init() {
     pin_mode(pins::kOdoSck, PinMode::AltPP);
     pin_mode(pins::kOdoMosi, PinMode::AltPP);
     pin_mode(pins::kOdoMiso, PinMode::InputFloat);
-    spi_.init(3);  // APB1 / 16
+    spi_.init(6);  // APB1 / 128 = 469 kHz (stock bit-bangs at ~312 kHz)
     if (read_reg(kRegUserId) != 0x7E) write_reg(kRegUserId, 0x7E);
     return read_reg(kRegUserId) == 0x7E;
 }
@@ -337,6 +344,64 @@ void McuSystem::serial_number(char out[19]) {
     }
 }
 
+// ---- parameter page -------------------------------------------------------------
+namespace {
+bool fmc_wait() {
+    while (reg(FMC_STAT0) & FMC_STAT_BUSY) {
+    }
+    const uint32_t st = reg(FMC_STAT0);
+    reg(FMC_STAT0) = FMC_STAT_ENDF | FMC_STAT_PGERR | FMC_STAT_WPERR;  // write 1 to clear
+    return !(st & (FMC_STAT_PGERR | FMC_STAT_WPERR));
+}
+
+void fmc_unlock() {
+    if (reg(FMC_CTL0) & FMC_CTL_LK) {
+        reg(FMC_KEY0) = FMC_UNLOCK_KEY0;
+        reg(FMC_KEY0) = FMC_UNLOCK_KEY1;
+    }
+}
+}  // namespace
+
+void FlashSettings::load() {
+    uint8_t raw[params::kRecordSize];
+    const volatile uint8_t* page = reinterpret_cast<const volatile uint8_t*>(
+        static_cast<uintptr_t>(kPageAddr));
+    for (size_t i = 0; i < sizeof raw; ++i) raw[i] = page[i];
+    if (params::load(raw, kVersion, rec_)) save();
+}
+
+void FlashSettings::set_mode(uint8_t m) {
+    if (m == rec_.mode) return;
+    rec_.mode = m;
+    save();
+}
+
+// Same sequence as stock (0x08011DF0): erase the page, then program the record
+// word by word. The rest of the page stays erased.
+bool FlashSettings::save() {
+    uint8_t raw[params::kRecordSize];
+    params::encode(rec_, raw);
+    fmc_unlock();
+    bool ok = fmc_wait();
+    reg(FMC_CTL0) |= FMC_CTL_PER;
+    reg(FMC_ADDR0) = kPageAddr;
+    reg(FMC_CTL0) |= FMC_CTL_START;
+    ok = fmc_wait() && ok;
+    reg(FMC_CTL0) &= ~FMC_CTL_PER;
+    for (size_t i = 0; ok && i < sizeof raw; i += 4) {
+        const uint32_t word = static_cast<uint32_t>(raw[i]) | static_cast<uint32_t>(raw[i + 1]) << 8 |
+                              static_cast<uint32_t>(raw[i + 2]) << 16 |
+                              static_cast<uint32_t>(raw[i + 3]) << 24;
+        reg(FMC_CTL0) |= FMC_CTL_PG;
+        reg(kPageAddr + static_cast<uint32_t>(i)) = word;
+        ok = fmc_wait();
+        reg(FMC_CTL0) &= ~FMC_CTL_PG;
+    }
+    reg(FMC_CTL0) |= FMC_CTL_LK;
+    write_ok_ = ok;
+    return ok;
+}
+
 // ---- board -------------------------------------------------------------------------------
 Board::Board() = default;
 
@@ -361,6 +426,7 @@ void Board::init() {
     reg(EXTI_INTEN) |= 1u << 11;
     nvic_enable(IRQ_EXTI10_15);
 
+    settings_.load();
     feeders_.init();
     hub_.init();
     sensors_.init();
@@ -378,8 +444,10 @@ Hardware Board::hardware() {
 
 void Board::tick_1ms() {
     const uint32_t now = clock.now_ms();
-    odometer_.poll();
-    if (now % 20 == 0) feeders_.tick_20ms();
+    if (now % 20 == 0) {
+        odometer_.poll();  // stock samples the encoder every 20 ms
+        feeders_.tick_20ms();
+    }
     if (now % 40 == 0) hub_.tick_40ms();
     leds_.tick_ms(now);
 }

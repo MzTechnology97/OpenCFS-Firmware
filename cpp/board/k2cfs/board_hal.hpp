@@ -8,6 +8,7 @@
 
 #include "board_io.hpp"
 #include "cfs/hal.hpp"
+#include "cfs/param_store.hpp"
 
 namespace cfs::board {
 
@@ -90,7 +91,7 @@ class Mt6826Odometer : public Odometer {
 public:
     explicit Mt6826Odometer(Spi& spi) : spi_(spi) {}
     bool init();          // stock: write user ID 0x7E and read it back
-    void poll();          // sample often enough to see < half a turn per call
+    void poll();          // every 20 ms like stock; needs < half a turn per call
     float position_mm() override { return static_cast<float>(count_) * kMmPerCount; }
     void reset() override { count_ = 0; }
 
@@ -151,14 +152,27 @@ public:
     bool read_record(int, TagRecord&) override { return false; }
 };
 
-// RAM-only settings until the flash parameter page (0x0807F800) is implemented.
-class RamSettings : public Settings {
+// Stock-compatible parameter page at 0x0807F800 (cfs/param_store.hpp). Erasing
+// and programming stall the CPU (and so RS-485 reception) for the page erase time,
+// as in stock, which resets 100 ms after a mode change anyway.
+class FlashSettings : public Settings {
 public:
-    uint8_t mode() override { return mode_; }
-    void set_mode(uint8_t m) override { mode_ = m; }
+    static constexpr uint32_t kPageAddr = 0x0807F800;
+    static constexpr uint32_t kPageSize = 0x800;
+    // Version marker written to key 5. The stock 1.5.3 value, so a stock image
+    // finds the page unchanged.
+    static constexpr uint32_t kVersion = params::kStockVersion;
+
+    void load();  // stock policy: defaults on a bad CRC, rewrite on another version
+    uint8_t mode() override { return rec_.mode; }
+    void set_mode(uint8_t m) override;
+    bool last_write_ok() const { return write_ok_; }
 
 private:
-    uint8_t mode_ = 0;
+    bool save();
+
+    params::Record rec_;
+    bool write_ok_ = true;
 };
 
 class McuSystem : public System {
@@ -205,7 +219,7 @@ private:
     Leds leds_;
     Rs485 link_{usart_};
     NoRfid rfid_;
-    RamSettings settings_;
+    FlashSettings settings_;
     McuSystem system_{clock};
 };
 

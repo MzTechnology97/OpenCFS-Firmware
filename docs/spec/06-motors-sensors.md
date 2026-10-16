@@ -19,9 +19,9 @@ The scatter-loaded records (identical in 1.5.3 stock and v3.22) are [code]:
 | D | PD12 (`0x3C`) | PD13 (`0x3D`) | 0 / none | `adc1` ch 0 = PA0 |
 
 No code writes the PWM flag or the device names after start-up, so **all four
-feeders are driven on/off by GPIO**. Which input is electrical IN1 on the AT8236,
-and which way the spool turns for direction 0, is not established from the
-firmware. Check it on the PCB before any feeder movement.
+feeders are driven on/off by GPIO**. Public PCB tracing puts driver IN1 on input
++5 and IN2 on input +4 (`10-board-port.md` §3). Which way the spool turns for
+direction 0 also depends on the motor wiring: check it before any feeder movement.
 
 **Drive (`feeder_run(slot, dir, speed)`, `0x08010054`)**
 - GPIO records (the only ones used): direction 0 → input +4 high, input +5 low;

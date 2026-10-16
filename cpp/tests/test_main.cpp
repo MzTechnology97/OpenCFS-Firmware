@@ -10,6 +10,7 @@
 #include "cfs/dispatcher.hpp"
 #include "cfs/feeder.hpp"
 #include "cfs/frame.hpp"
+#include "cfs/param_store.hpp"
 #include "cfs/preload.hpp"
 #include "cfs/print_tracker.hpp"
 #include "cfs/spool.hpp"
@@ -443,6 +444,38 @@ struct Test {
 
 }  // namespace
 
+// Parameter page: the record found at 0x0807F800 in a public live flash dump.
+void test_param_store() {
+    using namespace cfs::params;
+    const uint8_t real[kRecordSize] = {0x16, 0x89, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
+                                       0x08, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xFF, 0xFF};
+    Record r;
+    CHECK(decode(real, r));
+    CHECK(r.version == 0x00010008 && r.mode == 0);
+    uint8_t again[kRecordSize] = {};
+    encode(r, again);
+    CHECK(std::memcmp(again, real, kRecordSize) == 0);  // padding kept, same CRC
+
+    // Another firmware version: keep the mode, rewrite the version.
+    uint8_t moded[kRecordSize];
+    encode(Record{0x00010008, 2, {0xFF, 0xFF, 0xFF}}, moded);
+    Record l;
+    CHECK(load(moded, kStockVersion, l));
+    CHECK(l.version == kStockVersion && l.mode == 2);
+    CHECK(!load(real, 0x00010008, l));  // same version: nothing to write
+
+    // Erased or corrupted page: defaults.
+    uint8_t erased[kRecordSize];
+    std::memset(erased, 0xFF, sizeof erased);
+    CHECK(!decode(erased, r));
+    CHECK(load(erased, kStockVersion, l));
+    CHECK(l.version == kStockVersion && l.mode == 0);
+    uint8_t bad[kRecordSize];
+    std::memcpy(bad, real, kRecordSize);
+    bad[12] ^= 1;
+    CHECK(!decode(bad, r));
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -462,6 +495,7 @@ int main() {
         {"usage_accounting", test_usage_accounting},
         {"supervisor_detooth_and_stop", test_supervisor_detooth_and_stop},
         {"usage_reset_on_removal_and_runout", test_usage_reset_on_removal_and_runout},
+        {"param_store", test_param_store},
     };
     for (const Test& t : tests) {
         const int before = g_failed;

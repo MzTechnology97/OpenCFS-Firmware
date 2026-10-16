@@ -29,11 +29,10 @@ constexpr Pin P(char port, uint8_t pin) { return Pin{static_cast<uint8_t>((port 
 namespace pins {
 // RS-485 (USART1).
 constexpr Pin kRs485Tx = P('A', 2), kRs485Rx = P('A', 3);
-// Feeders: the two AT8236 inputs per slot A..D, in motor-record order (bytes +4, +5
-// of the record at 0x20000270 + i*0xAC). Which one is electrical IN1 on the PCB
-// is not verified.
-constexpr Pin kFeederIn1[4] = {P('D', 2), P('D', 0), P('D', 14), P('D', 12)};
-constexpr Pin kFeederIn2[4] = {P('D', 3), P('D', 1), P('D', 15), P('D', 13)};
+// Feeders: AT8236 inputs per slot A..D. Motor record (0x20000270 + i*0xAC) byte +5
+// is IN1 and byte +4 is IN2, per public PCB tracing (docs/spec/10 section 3).
+constexpr Pin kFeederIn1[4] = {P('D', 3), P('D', 1), P('D', 15), P('D', 13)};  // record +5
+constexpr Pin kFeederIn2[4] = {P('D', 2), P('D', 0), P('D', 14), P('D', 12)};  // record +4
 constexpr uint8_t kFeederAdcChannel[4] = {15, 10, 1, 0};
 constexpr Pin kFeederAdcPin[4] = {P('C', 5), P('C', 0), P('A', 1), P('A', 0)};
 // Hub.

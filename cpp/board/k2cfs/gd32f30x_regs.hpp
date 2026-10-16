@@ -81,6 +81,17 @@ enum : uint32_t {
     ADC_CTL1_SWRCST = 1u << 22,
 };
 
+// ---- FMC (flash controller, bank 0 covers the whole 512 KiB part) ------------
+constexpr uint32_t FMC = 0x40022000;
+constexpr uint32_t FMC_KEY0 = FMC + 0x04, FMC_STAT0 = FMC + 0x0C, FMC_CTL0 = FMC + 0x10,
+                   FMC_ADDR0 = FMC + 0x14;
+constexpr uint32_t FMC_UNLOCK_KEY0 = 0x45670123, FMC_UNLOCK_KEY1 = 0xCDEF89AB;
+enum : uint32_t {
+    FMC_STAT_BUSY = 1u << 0, FMC_STAT_PGERR = 1u << 2, FMC_STAT_WPERR = 1u << 4,
+    FMC_STAT_ENDF = 1u << 5,
+    FMC_CTL_PG = 1u << 0, FMC_CTL_PER = 1u << 1, FMC_CTL_START = 1u << 6, FMC_CTL_LK = 1u << 7,
+};
+
 // ---- SysTick / NVIC ------------------------------------------------------------
 constexpr uint32_t SYST_CTRL = SYSTICK + 0x0, SYST_LOAD = SYSTICK + 0x4, SYST_VAL = SYSTICK + 0x8;
 

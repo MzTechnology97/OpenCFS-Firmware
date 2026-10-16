@@ -52,3 +52,15 @@ Keep the Ghidra project and export private; they contain manufacturer code.
 
 Addresses written before 2026-10-12 in older research use `0x08010000` as the base.
 Subtract `0xD000` to get the real address.
+
+## Public third-party research
+
+- [fake-name/cfs-reverse-engineering](https://github.com/fake-name/cfs-reverse-engineering)
+  (read 2026-10-16). `PCBs.md`: chip list (GD32F303, HTD8236, MS8828, FM17622,
+  TM1621B, 24C16, TPT75176H, MT6826S) and traced pinouts (feeder IN1/IN2, current
+  feedback, J5, J6, J8/J19, BLDC). `probing/Mag Encoder.dsl` and
+  `probing/RFID Reader I2Cs.dsl`: DSLogic captures at 10 MHz, decoded with our own
+  scripts (MT6826S framing, 20 ms poll, FM17622 soft reset). `reversing/live_dumps`
+  holds the public 2025 dumps cited elsewhere in this spec. The captures come from
+  an earlier firmware build than 1.5.3, so every finding is cross-checked against
+  the stock code.

@@ -16,6 +16,7 @@ add_library(cfs_core
     lib/auto_address.cpp
     lib/usage.cpp
     lib/supervisor.cpp
+    lib/param_store.cpp
 )
 target_include_directories(cfs_core PUBLIC include)
 if(MSVC)

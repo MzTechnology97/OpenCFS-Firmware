@@ -9,6 +9,9 @@ Evidence:
 - **[code]** — read from the configuration code or tables;
 - **[str]** — factory-test strings;
 - **[pcb]** — historical PCB tracing confirmed by the operator [res];
+- **[fn]** — public PCB notes and logic-analyzer captures of a running CFS in
+  [fake-name/cfs-reverse-engineering](https://github.com/fake-name/cfs-reverse-engineering)
+  (`PCBs.md`, `probing/*.dsl`); the captures are from an earlier firmware build;
 - **[?]** — unverified.
 
 ## 1. Memory and boot
@@ -17,10 +20,41 @@ Evidence:
 | --- | --- |
 | Application base | `0x08003000`; the loader occupies `0x08000000..0x08002FFF` (`08-loader-and-recovery.md`) |
 | Image header | version `+0x200` (12 chars), CRC-16 `+0x20C`, length `+0x20E` |
-| Parameter page | `0x0807F800` (2 KiB, key/value database with checksum) |
+| Parameter page | `0x0807F800` (2 KiB), the stock "database", see below [code] |
 | SRAM | `0x20000000..0x2000FFFF`; stock RW `0x000..0xBC3`, ZI to `0x6EE7`, MSP `0x20006EE8`, heap above |
 | RTOS | RT-Thread 4.x/5.0 (FinSH/MSH, ulog, device framework), Keil scatter loading |
 | Console | SEGGER RTT (`jlinkRtt`); `uart0` (USART0, 115200) is defined but its pins clash with the inlet sensors [?] |
+
+### Parameter page ("database")
+
+A flash device `gd32_flash` (descriptor `0x08029D2C`: base `0x0807F800`, 1 page
+of `0x800` bytes, ops erase `0x08011AA2` / read `0x08011B12` / write `0x08011B7A`)
+backs one table of three slots (`0x08029D4C`), mirrored in RAM at `0x20004A30` [code]:
+
+| Offset | Size | Content |
+| --- | --- | --- |
+| `0x00` | 4 | CRC-16/XMODEM (poly `0x1021`, init 0, MSB first) of bytes `0x08..0x0F`, upper half zero (`0x08011CE8`) |
+| `0x04` | 4 | payload length, `8` |
+| `0x08` | 4 | **key 5**: version of the firmware that wrote the page, `0x00010503` in 1.5.3 |
+| `0x0C` | 1 | **key 6**: box mode, `0` = standard. Read by `0x0C`, written by `0x50` |
+| `0x0D` | 3 | padding, covered by the CRC (`FF FF FF` when it comes from erased flash) |
+
+The rest of the page stays erased. Keys 5..199 map to slot `key − 4` of table 0,
+keys 200..399 to a second table that this build does not define (`0x08011E48`).
+
+- **Load at start-up** (`0x08011EBA`): read the 16 bytes and check the CRC. If it
+  is bad, set key 5 = own version and key 6 = 0, then save. If it is good but key 5
+  differs from the own version, rewrite key 5 only (the mode is kept).
+- **Save** (`0x08011DF0`): recompute the CRC, write length 8, erase the page,
+  program the record word by word (unlock `0x45670123` / `0xCDEF89AB`).
+- **Mode 2** is written by a start-up task (`0x08012B16`) after sensor activity on
+  all four slots with the buffer held in one state for 3 s; it then resets. In a
+  non-standard mode, buffer state 1 held for 60 × 50 ms switches back to standard,
+  saves and resets (`0x0800A026`). What mode 2 enables is [?].
+- **Cross-check**: the public 2025 live flash dump (app `cfs0_000_108`) holds
+  `16 89 00 00 08 00 00 00 08 00 01 00 00 FF FF FF` at `0x0807F800`: CRC `0x8916`
+  matches, version `0x00010008` = 1.0.8, mode 0 [res].
+- The loader sub-command `06` erases exactly this page (`08-loader-and-recovery.md`).
 
 ## 2. RS-485 host link
 
@@ -28,14 +62,19 @@ Evidence:
 | --- | --- |
 | UART | **USART1** (`uart1`), IRQ 38, TX **PA2**, RX **PA3** [code] |
 | Format | **230400 8N1** (driver config `0x38400`, `0x100008`) [code] |
-| DE/RE | No firmware-driven GPIO found [code]; the transceiver is presumably auto-direction [?] |
+| Transceiver | 3PEAK TPT75176H [fn] |
+| DE/RE | No firmware-driven GPIO [code]. The transmitter is wired permanently enabled and the bus works in a pseudo open-collector way, with the idle state set by the 300 Ω pull-up/pull-down termination [fn]. This limits the usable baud rate |
 
 ## 3. Motors
 
-### Slot feeders (AT8236, brushed)
+### Slot feeders (AT8236 / HTD8236, brushed)
 
-Columns follow the motor-record byte order (+4, +5). Which input is electrical
-IN1 is not verified on the PCB.
+Columns follow the motor-record byte order (+4, +5). The PCB tracing [fn] puts
+driver **IN1 on input +5** (PD3, PD1, PD15, PD13) and **IN2 on input +4** (PD2,
+PD0, PD14, PD12) for M1..M4 = slots A..D. So stock direction 0 drives IN1 low and
+IN2 high. Which way the spool turns also depends on the motor wiring, which is
+still to be checked before any movement. Current sense goes through an LM358 stage
+with gain and offset over 0.5 Ω shunts [fn].
 
 | Slot | Input +4 | Input +5 | Drive | Current sense |
 | --- | --- | --- | --- | --- |
@@ -63,7 +102,7 @@ FG pulses do not prove the hub is de-energized. A release build has to establish
 "motors off" from the commanded outputs themselves (feeder input levels, hub PWM,
 brake), not from the reported state. Object-only CI cannot qualify this.
 
-### Hub (BLDC, MS3791)
+### Hub (BLDC driver MS8828; the firmware strings say MS3791 [fn])
 
 | Signal | Pin | Detail |
 | --- | --- | --- |
@@ -86,12 +125,38 @@ brake), not from the reported state. Object-only CI cannot qualify this.
 
 | Device | Bus / pins | Detail |
 | --- | --- | --- |
-| Odometer MT6826 | SPI1: CS **PB12** (software), SCK PB13, MISO PB14, MOSI PB15 [code][str] | multi-turn count × **0.000788641 mm** (≈ 1268 counts/mm; at 15 bits per turn ≈ 25.8 mm per wheel turn [?]). Comms check: write user ID `0x7E`, read it back. |
-| RFID reader 0 / 1 (FM176xx) | software I2C: SCL1 PB10 / SDA1 PB11, SCL2 PB8 / SDA2 PB9 [str] | which bus serves which reader [?]; antennas per `05-preload-rfid.md` §4 |
+| Odometer MT6826S | CS **PB12**, SCK PB13, MISO PB14, MOSI PB15, on the J6 connector [code][str][fn]. Stock bit-bangs the bus (`0x08006E32`) at ≈ 312 kHz, SPI mode 3 [code][fn] | see "MT6826S transactions" below. Multi-turn count × **0.000788641 mm** (≈ 1268 counts/mm; at 15 bits per turn ≈ 25.8 mm per wheel turn [?]) |
+| RFID reader 0 / 1 (FM17622) | software I2C: SCL1 PB10 / SDA1 PB11, SCL2 PB8 / SDA2 PB9 [str][fn] | 7-bit address **0x28** on both buses [fn]; see "FM17622 start-up" below. Which bus serves which reader [?]; antennas per `05-preload-rfid.md` §4 |
 | Temperature/humidity AHT30 | software I2C: SCL PC11, SDA PC12 [str] | |
-| EEPROM BL24Cxx | software I2C: SCL PE5, SDA PE6 [code][str] | diagnostic records, RFID usage data |
-| Front LCD (HT1621-compatible) | CS PC1, RD PC2, WR PC3, DATA PC4 [code] | protocol in `06-motors-sensors.md` §5 |
+| EEPROM BL24Cxx (24C16, 2 KiB) | software I2C: SCL PE5, SDA PE6 [code][str][fn] | diagnostic records, RFID usage data, motor block info (`read_motor_info eeprom`) [str] |
+| Front LCD (TM1621B, HT1621-compatible) [fn] | CS PC1, RD PC2, WR PC3, DATA PC4 [code] | protocol in `06-motors-sensors.md` §5 |
 | LCD backlight | **PB0** (`0x10`) [code] | configured by the LCD init; command `0x30` switches it |
+
+### MT6826S transactions
+
+Each transaction has its own CS-low window. First byte = `command << 4 | addr[11:8]`
+(read `0x3`, write `0x6`), second byte = `addr[7:0]`, then up to four data bytes in
+the same window (`0x0800CC20` read, `0x0800CC66` write) [code]. Seen on a running CFS [fn]:
+
+| When | MOSI | MISO | Meaning |
+| --- | --- | --- | --- |
+| start-up, 3× | `30 03 00 00` | `FF FF hi lo` | angle reads (prime the filter) |
+| start-up | `30 01 00` | `FF FF 00` | read user ID |
+| start-up | `60 01 7E` | – | write user ID `0x7E` |
+| start-up | `30 01 00` | `FF FF 7E` | read back: communication OK |
+| every **20 ms** | `30 03 00 00` | `FF FF hi lo` | angle burst read |
+
+The angle is `((hi << 8) | lo) >> 1`, 15 bits per turn (`0x0800CCFC`) [code]. The
+stock poll timer is `rt_timer_create(…, rt_tick_from_millisecond(20))` (`0x0800B722`)
+[code], which matches the 20 ms seen in the capture.
+
+### FM17622 start-up
+
+On each reader bus the stock firmware writes register `0x01` (Command) =
+`0x0F` (SoftReset), then reads `0x01` back with a repeated start. The capture shows
+`50 01 0F` / `50 01` `Sr` `51 → 20` on both buses, ~1.7 ms apart [fn]. Register
+writes are `[addr7<<1, reg, value]`, reads are `[addr7<<1, reg]` then
+`[addr7<<1 | 1, data]`. This matches the `softReset failed, reg_data = %x` check [str].
 
 ## 6. Slot indicators
 
@@ -118,4 +183,6 @@ The reference CFS reads `hw_flag = 0` [hw].
 
 - clock tree set by the application (the loader configures the PLL);
 - address straps `PIN_ADDRESS_A/B`, `PIN_BG_CTL`, `PIN_IO_POWER` (factory test only);
-- FM15L013 interface (absent on the reference board).
+- FM15L013 interface (absent on the reference board);
+- J6 pins 2 and 7, **PE15** and **PB3** [fn]: no direct use in the stock code
+  [code]; reserved on the feeder-assembly connector.
