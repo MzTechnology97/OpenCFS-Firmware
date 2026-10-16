@@ -432,6 +432,7 @@ void Board::init() {
     sensors_.init();
     odometer_.init();
     env_.init();
+    rfid_.init();
     leds_.init();
     pin_write(pins::kLcdBacklight, false);
     pin_mode(pins::kLcdBacklight, PinMode::OutputPP);

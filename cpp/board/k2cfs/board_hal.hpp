@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "board_io.hpp"
+#include "fm17622.hpp"
 #include "cfs/hal.hpp"
 #include "cfs/param_store.hpp"
 
@@ -144,14 +145,6 @@ private:
     Usart& usart_;
 };
 
-// Not implemented yet on the board: return "nothing found".
-class NoRfid : public RfidReader {
-public:
-    Detect detect(int) override { return Detect::None; }
-    bool read_uid(int, TagUid&) override { return false; }
-    bool read_record(int, TagRecord&) override { return false; }
-};
-
 // Stock-compatible parameter page at 0x0807F800 (cfs/param_store.hpp). Erasing
 // and programming stall the CPU (and so RS-485 reception) for the page erase time,
 // as in stock, which resets 100 ms after a mode change anyway.
@@ -193,6 +186,8 @@ public:
     Board();
     void init();
     Hardware hardware();
+    // Creality tag keys come from the integrator (see TagCrypto); call before init.
+    void set_tag_crypto(TagCrypto* crypto) { rfid_.set_crypto(crypto); }
     // 1 ms housekeeping: monitors, speed loop, odometer and LEDs.
     void tick_1ms();
     // IRQ hooks.
@@ -210,6 +205,8 @@ private:
     Spi spi_{gd32::SPI1};
     Usart usart_{gd32::USART1};
     SoftI2c aht_bus_{pins::kAhtScl, pins::kAhtSda};
+    SoftI2c rfid_bus0_{pins::kRfid0Scl, pins::kRfid0Sda};
+    SoftI2c rfid_bus1_{pins::kRfid1Scl, pins::kRfid1Sda};
 
     Feeders feeders_{adc_};
     Hub hub_{tim0_};
@@ -218,7 +215,7 @@ private:
     Aht30 env_{aht_bus_};
     Leds leds_;
     Rs485 link_{usart_};
-    NoRfid rfid_;
+    Fm17622Rfid rfid_{rfid_bus0_, rfid_bus1_, clock};
     FlashSettings settings_;
     McuSystem system_{clock};
 };

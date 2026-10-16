@@ -56,7 +56,9 @@ usage manager task (section 6) on every pass.
 
 ## 4. RFID hardware model
 
-- Two reader front-ends (FM176xx, I2C), each with two antennas. Mapping:
+- Two reader front-ends (FM17622, software I2C at `0x28`), each with two antennas
+  that are always energized together (TX1 + TX2). Register sequences are in
+  `10-board-port.md` §5. Mapping:
 
   | Slot | Reader | Antenna | Neighbor slot |
   | --- | --- | --- | --- |

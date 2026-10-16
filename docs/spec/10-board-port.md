@@ -126,7 +126,7 @@ brake), not from the reported state. Object-only CI cannot qualify this.
 | Device | Bus / pins | Detail |
 | --- | --- | --- |
 | Odometer MT6826S | CS **PB12**, SCK PB13, MISO PB14, MOSI PB15, on the J6 connector [code][str][fn]. Stock bit-bangs the bus (`0x08006E32`) at ≈ 312 kHz, SPI mode 3 [code][fn] | see "MT6826S transactions" below. Multi-turn count × **0.000788641 mm** (≈ 1268 counts/mm; at 15 bits per turn ≈ 25.8 mm per wheel turn [?]) |
-| RFID reader 0 / 1 (FM17622) | software I2C: SCL1 PB10 / SDA1 PB11, SCL2 PB8 / SDA2 PB9 [str][fn] | 7-bit address **0x28** on both buses [fn]; see "FM17622 start-up" below. Which bus serves which reader [?]; antennas per `05-preload-rfid.md` §4 |
+| RFID reader 0 / 1 (FM17622) | software I2C: SCL1 PB10 / SDA1 PB11, SCL2 PB8 / SDA2 PB9 [str][fn] | 7-bit address **0x28** on both buses [code][fn]. Pin table at `0x200001D0`: **reader 0 = PB8/PB9 (J19), reader 1 = PB10/PB11 (J8)** [code]. Slots A/B on reader 0, C/D on reader 1 (`05-preload-rfid.md` §4). See "FM17622 driver" below |
 | Temperature/humidity AHT30 | software I2C: SCL PC11, SDA PC12 [str] | |
 | EEPROM BL24Cxx (24C16, 2 KiB) | software I2C: SCL PE5, SDA PE6 [code][str][fn] | diagnostic records, RFID usage data, motor block info (`read_motor_info eeprom`) [str] |
 | Front LCD (TM1621B, HT1621-compatible) [fn] | CS PC1, RD PC2, WR PC3, DATA PC4 [code] | protocol in `06-motors-sensors.md` §5 |
@@ -150,13 +150,65 @@ The angle is `((hi << 8) | lo) >> 1`, 15 bits per turn (`0x0800CCFC`) [code]. Th
 stock poll timer is `rt_timer_create(…, rt_tick_from_millisecond(20))` (`0x0800B722`)
 [code], which matches the 20 ms seen in the capture.
 
-### FM17622 start-up
+### FM17622 driver
 
-On each reader bus the stock firmware writes register `0x01` (Command) =
-`0x0F` (SoftReset), then reads `0x01` back with a repeated start. The capture shows
-`50 01 0F` / `50 01` `Sr` `51 → 20` on both buses, ~1.7 ms apart [fn]. Register
-writes are `[addr7<<1, reg, value]`, reads are `[addr7<<1, reg]` then
-`[addr7<<1 | 1, data]`. This matches the `softReset failed, reg_data = %x` check [str].
+Register access (`0x0800BDD4` write, `0x0800BE3A` read) [code]: write
+`S 50 reg val P`, read `S 50 reg P S 51 data(NACK) P`, `reg` masked to 6 bits.
+Registers follow the MFRC522-compatible map. Register `0x0F` gives access to the
+extended registers (`0x40|addr` then `0xC0|data` to write, `0x80|addr` then read
+`0x0F`). The normal flow does not use them.
+
+**Start-up**: SoftReset (`0x01` ← `0x0F`), wait 2 ms, `0x01` must read `0x20`.
+The box tries this up to 3 times per reader (`0x0800BF74`). The capture shows
+`50 01 0F` / `50 01` / `51 → 20` on both buses, ~1.7 ms apart [fn].
+
+**Open a card** (`0x0800C59E`, done before every detection):
+
+1. SoftReset again.
+2. Configure (`0x0800C0E4`): `0x0C` |= `0x10`, `0x15` |= `0x40` (100 % ASK),
+   `0x12` = `0x13` = 0, `0x27` = `F1`, `0x28` = `3F`, `0x29` = `01`, `0x26` = `58`,
+   `0x18` = `84`, `0x36` = `40`.
+3. Antenna: `0x14` |= `0x03` (TX1 and TX2 together), then 10 ms. Modes 1 and 2
+   (TX1 or TX2 alone) exist in `0x0800C14C` but are never used. Both antennas of a
+   reader are always energized together, which is why a neighbor tag shows up as
+   a collision.
+4. Activate (`0x0800C53C`): each step loads the FIFO after `0x01` ← Idle and
+   `0x0A` ← `0x80` (flush), then sets Transceive (`0x01` ← `0x0C`) and
+   `0x0D` ← `0x80`, and checks `0x0A` (FIFO level) after a fixed wait:
+
+| Step | CRC (`0x12`/`0x13`) | FIFO | `0x0D` | Wait | Expected |
+| --- | --- | --- | --- | --- | --- |
+| WUPA | off | `52` | `87` (7 bits) | 1 ms | 2 bytes ATQA |
+| Anticollision CL1 | off | `93 20` | `80` | 2 ms | 5 bytes, BCC = XOR of 4 |
+| Select CL1 | on (`80`) | `93 70` uid0..3 BCC | `80` | 2 ms | 1 byte SAK |
+| Anticollision CL2 | off | `95 20` | `80` | 10 ms | 5 bytes, BCC |
+| Select CL2 | on | `95 70` uid4..7 BCC | `80` | 2 ms | 1 byte SAK |
+
+ATQA `04 00` stops after CL1 (4-byte UID); any other ATQA runs the CL2 steps.
+Return codes: 0 OK; 1 no WUPA answer; **2 anticollision failed, which the preload
+treats as "several tags"** and answers by rotating the neighbor; 3 select failed.
+On failure the antenna is switched off.
+
+**Authenticate** (`0x0800C5D8`): Status2 `0x08` ← 0 if a Crypto1 session is open.
+CRC on, FIFO `60 block key[6] uid[4]`, command MFAuthent (`0x0E`), `0x0D` ← `80`,
+10 ms. Success = Status2 bit 3 (Crypto1On). The box authenticates once per sector:
+it caches the last sector, and opening a card resets the cache to `0x40`.
+
+**Read** (`0x0800C824`): block ≤ 63, CRC on, FIFO `30 block`, Transceive, 10 ms,
+FIFO level must be 16, then 16 bytes. After a record read the antenna is switched
+off (`0x0800D670`).
+
+**Record** (`0x0800D3DE`) [code]:
+
+- MIFARE Classic 1K (ATQA `04 00`, SAK `08`): Key A is derived from the 4-byte UID
+  with AES-128, and blocks **4, 5, 6** (table at `0x200001F8`) are decrypted with
+  a fixed AES-128 key (S-boxes at `0x0802BD89` / `0x0802BE89`). The 40-character
+  record is `dec(b4) ‖ dec(b5) ‖ dec(b6)[0..7]`. The OpenCFS driver does not ship
+  these keys: the integrator supplies them (`TagCrypto`).
+- Other tags (e.g. NTAG with a 7-byte UID): no authentication. Read pages 4 and 8
+  (16 bytes each); the record is the first 20 bytes as 40 uppercase hex
+  characters.
+- The write routine `card_write` (`0x0800C70E`) is never called (`05-preload-rfid.md` §8).
 
 ## 6. Slot indicators
 

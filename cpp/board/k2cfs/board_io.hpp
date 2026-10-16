@@ -46,8 +46,9 @@ constexpr Pin kOdoCs = P('B', 12), kOdoSck = P('B', 13), kOdoMiso = P('B', 14), 
 // Software I2C buses.
 constexpr Pin kAhtScl = P('C', 11), kAhtSda = P('C', 12);
 constexpr Pin kEepromScl = P('E', 5), kEepromSda = P('E', 6);
-constexpr Pin kRfid0Scl = P('B', 10), kRfid0Sda = P('B', 11);
-constexpr Pin kRfid1Scl = P('B', 8), kRfid1Sda = P('B', 9);
+// RFID readers: stock pin table at 0x200001D0 (reader 0 on J19, reader 1 on J8).
+constexpr Pin kRfid0Scl = P('B', 8), kRfid0Sda = P('B', 9);
+constexpr Pin kRfid1Scl = P('B', 10), kRfid1Sda = P('B', 11);
 // Front display (HT1621-compatible) and backlight.
 constexpr Pin kLcdCs = P('C', 1), kLcdRd = P('C', 2), kLcdWr = P('C', 3), kLcdData = P('C', 4);
 constexpr Pin kLcdBacklight = P('B', 0);

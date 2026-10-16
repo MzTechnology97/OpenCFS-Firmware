@@ -32,6 +32,7 @@ if(CFS_BUILD_BOARD_CHECK)
     add_library(cfs_board_check OBJECT
         board/k2cfs/board_io.cpp
         board/k2cfs/board_hal.cpp
+        board/k2cfs/fm17622.cpp
     )
     target_include_directories(cfs_board_check PRIVATE include board/k2cfs)
     if(MSVC)

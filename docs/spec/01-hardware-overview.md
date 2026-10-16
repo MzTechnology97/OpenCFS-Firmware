@@ -113,7 +113,7 @@ All pin assignments below come from the factory-test strings unless noted.
 
 ### 3.4 RFID
 
-- Two **FM176xx** reader front-ends (`rfid_init_flag[0]`, `rfid_init_flag[1]`,
+- Two **FM17622** (FM176xx family) reader front-ends (`rfid_init_flag[0]`, `rfid_init_flag[1]`,
   `fm176xx`) on I2C (`SetReg/GetReg: send RFID_ADDR`) [str].
   Buses: `SCL1` PB10 / `SDA1` PB11 and `SCL2` PB8 / `SDA2` PB9 [str].
 - MIFARE Classic operations: `ReaderA_Select`, `auth block`, `card_read`,
