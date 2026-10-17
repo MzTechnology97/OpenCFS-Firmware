@@ -10,6 +10,9 @@
 //   CFS_IMAGE_VARIANT 4  BUS-RELEASE  diagnostic: PA2 held high from reset, the
 //                                 clock set up, then nothing. No USART, no frame
 //                                 sent, no other pin or peripheral touched.
+//   CFS_IMAGE_VARIANT 5  BUS-LED  BUS-RELEASE plus one red slot LED per start-up
+//                                 stage, slot 4 blinking in the final loop, slot 1
+//                                 white on a fault.
 #include <cstdint>
 #include <new>
 
@@ -32,7 +35,7 @@
 namespace {
 
 constexpr uint8_t kVariant = CFS_IMAGE_VARIANT;
-static_assert(kVariant >= cfs::BuildInfo::Release && kVariant <= cfs::BuildInfo::BusRelease, "bad CFS_IMAGE_VARIANT");
+static_assert(kVariant >= cfs::BuildInfo::Release && kVariant <= cfs::BuildInfo::BusLed, "bad CFS_IMAGE_VARIANT");
 constexpr bool kLocked = kVariant != cfs::BuildInfo::Release;
 constexpr uint8_t kFlags = (kLocked ? cfs::BuildInfo::MotionLocked | cfs::BuildInfo::SettingsReadOnly : 0) |
                            (CFS_HAVE_CREALITY_KEYS || CFS_HAVE_VENDOR_KEYS ? cfs::BuildInfo::VendorKeys : 0);
@@ -40,7 +43,8 @@ constexpr uint8_t kFlags = (kLocked ? cfs::BuildInfo::MotionLocked | cfs::BuildI
 constexpr const char* variant_name() {
     return kVariant == cfs::BuildInfo::Inert ? "OpenCFS-INERT" :
            kVariant == cfs::BuildInfo::Bench ? "OpenCFS-BENCH" :
-           kVariant == cfs::BuildInfo::BusRelease ? "OpenCFS-BUSREL" : "OpenCFS-RELEASE";
+           kVariant == cfs::BuildInfo::BusRelease ? "OpenCFS-BUSREL" :
+           kVariant == cfs::BuildInfo::BusLed ? "OpenCFS-BUSLED" : "OpenCFS-RELEASE";
 }
 
 // Identity at the fixed offset +0x220 of the image, so a host tool can tell the
@@ -106,6 +110,16 @@ void main_loop() {
     // even the SysTick the loader left running is never taken.
     asm volatile("cpsid i" ::: "memory");
     for (;;) asm volatile("wfi");
+#elif CFS_IMAGE_VARIANT == 5
+    // Final loop: slot 4's red LED blinks about once a second (busy wait at
+    // 120 MHz; slower if the clock did not reach 120 MHz).
+    asm volatile("cpsid i" ::: "memory");
+    for (bool on = true;; on = !on) {
+        board::pin_write(board::pins::kLedB[3], on);
+        board::pin_mode(board::pins::kLedB[3], gd32::PinMode::OutputPP);
+        for (volatile uint32_t i = 0; i < 6000000u; i = i + 1) {
+        }
+    }
 #endif
     board::BoardVariant v;
     v.motion_locked = kLocked;

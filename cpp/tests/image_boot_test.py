@@ -307,7 +307,7 @@ class Board:
 
 FEEDER_PINS_D = 0xF00F                # PD0..3, PD12..15: AT8236 IN1/IN2 of the four feeders
 HUB_BRAKE, HUB_PWM = 1 << 4, 1 << 13  # PE4, PE13
-VARIANT_NAMES = {1: "RELEASE", 2: "INERT", 3: "BENCH", 4: "BUSREL"}
+VARIANT_NAMES = {1: "RELEASE", 2: "INERT", 3: "BENCH", 4: "BUSREL", 5: "BUSLED"}
 
 
 def main():
@@ -340,8 +340,8 @@ def main():
 
     check("image info at +0x220 names a variant", variant in VARIANT_NAMES, info.hex())
     locked = variant in (2, 3)
-    if variant == 4:
-        return busrel(image, b, check, results)
+    if variant in (4, 5):
+        return busrel(image, b, check, results, variant)
 
     # RS-485 (docs/10 section 2): the transceiver follows TX, so PA2 must free
     # the bus from the first instructions on, long before the clock is up.
@@ -483,6 +483,33 @@ def main():
     return 1 if failed else 0
 
 
+def only_pins(writes, outputs, may_clear=()):
+    """Every GPIO write only made the listed pins push-pull outputs, set them high,
+    and cleared only the pins in may_clear."""
+    allowed = {(GPIO[port], pin) for port, pin in outputs}
+    for addr, value in writes:
+        port, reg = addr & ~0x3FF, addr & 0x3FF
+        if reg in (0x00, 0x04):
+            base = 0 if reg == 0x00 else 8
+            for k in range(8):
+                nib = (value >> (4 * k)) & 0xF
+                pin = base + k
+                if nib != 0x4 and not ((port, pin) in allowed and nib == 0x3):
+                    return False
+        elif reg == 0x10:
+            for pin in range(16):
+                if value & (1 << pin) and (port, pin) not in allowed:
+                    return False
+            for pin in range(16):
+                if value & (1 << (pin + 16)) and (port, pin) not in {(GPIO[a], b) for a, b in may_clear}:
+                    return False
+        elif reg == 0x14:
+            for pin in range(16):
+                if value & (1 << pin) and (port, pin) not in {(GPIO[a], b) for a, b in may_clear}:
+                    return False
+    return True
+
+
 def only_pa2(writes):
     """True when every GPIO write only made PA2 an output held high."""
     for addr, value in writes:
@@ -500,11 +527,19 @@ def only_pa2(writes):
     return True
 
 
-def busrel(image, b, check, results):
-    """BUS-RELEASE (docs/15, bus bisection phase 1): PA2 high, clock up, nothing else."""
+def busrel(image, b, check, results, variant=4):
+    """BUS-RELEASE / BUS-LED (docs/15, bus bisection phase 1): PA2 high, clock up,
+    nothing else; BUS-LED adds one red slot LED per stage (PC6..PC9)."""
+    leds = [("C", 6), ("C", 7), ("C", 8), ("C", 9)] if variant == 5 else []
+    pins_ok = lambda w, extra=(): only_pins(w, [("A", 2)] + leds + list(extra),
+                                            may_clear=[("C", 9)] if variant == 5 else [])
+    led_on = lambda n: bool(b.r32(GPIO["C"] + 0x0C) & (1 << (6 + n)))
     b.run_instructions(300)
     check("RS-485 TX (PA2) a GPIO held high within 300 instructions of reset",
           (b.r32(GPIO["A"]) >> 8) & 0xF == 0x3 and b.r32(GPIO["A"] + 0x0C) & (1 << 2))
+    if variant == 5:
+        check("BUS-LED: slot 1 and slot 2 red on right after reset (image runs, PA2 high)",
+              led_on(0) and led_on(1) and not led_on(2))
     b.run_ms(2000)
     check("no fault, emulation healthy", not b.faults and not b.problems, "; ".join(b.problems))
     cfg0 = b.r32(RCU + 4) & ~(0x3 << 14 | 1 << 28 | 0xC)
@@ -514,8 +549,15 @@ def busrel(image, b, check, results):
           (b.r32(GPIO["A"]) >> 8) & 0xF == 0x3 and b.r32(GPIO["A"] + 0x0C) & (1 << 2) and not b.bus_problems,
           hex(b.r32(GPIO["A"])))
     check("USART1 never touched", b.usart_writes == 0, "%d writes" % b.usart_writes)
-    check("no other pin configured or driven (only PA2)", only_pa2(b.gpio_writes),
-          str([(hex(a), hex(v)) for a, v in b.gpio_writes][:6]))
+    check("no other pin configured or driven (only PA2%s)" % (" and the red slot LEDs" if leds else ""),
+          pins_ok(b.gpio_writes), str([(hex(a), hex(v)) for a, v in b.gpio_writes][:6]))
+    if variant == 5:
+        samples = []
+        for _ in range(6):
+            b.run_ms(250)
+            samples.append(led_on(3))
+        check("BUS-LED: slot 3 red on (clock up) and slot 4 red blinking (CPU alive)",
+              led_on(2) and True in samples and False in samples, str(samples))
     b.rx += frame(0xFE, 0x00, 0xA1, b"\xFE\xFE")
     b.rx += frame(0x01, 0xFF, 0x14, b"")
     b.run_ms(1500)
@@ -530,19 +572,26 @@ def busrel(image, b, check, results):
     b.run_ms(5)
     check("fault: bus stays free (PA2 GPIO high), no motor pin configured or driven",
           b.faults > 0 and (b.r32(GPIO["A"]) >> 8) & 0xF == 0x3 and b.r32(GPIO["A"] + 0x0C) & (1 << 2)
-          and only_pa2(b.gpio_writes[before:]), str([(hex(a), hex(v)) for a, v in b.gpio_writes[before:]][:6]))
+          and pins_ok(b.gpio_writes[before:], [("B", 7)]),
+          str([(hex(a), hex(v)) for a, v in b.gpio_writes[before:]][:6]))
+    if variant == 5:
+        check("BUS-LED: fault lights slot 1 white (PB7)", bool(b.r32(GPIO["B"] + 0x0C) & (1 << 7)))
 
     h = Board(image, hxtal_ok=False)
     h.start()
     h.run_ms(200)
     check("no HXTAL: start-up stops, bus free, nothing else touched",
           (h.r32(GPIO["A"]) >> 8) & 0xF == 0x3 and h.r32(GPIO["A"] + 0x0C) & (1 << 2)
-          and only_pa2(h.gpio_writes) and h.usart_writes == 0 and not h.tx)
+          and only_pins(h.gpio_writes, [("A", 2), ("B", 7)] + leds) and h.usart_writes == 0 and not h.tx)
+    if variant == 5:
+        c = h.r32(GPIO["C"] + 0x0C)
+        check("BUS-LED, no HXTAL: slot 1-2 red on, slot 3 off (clock never up), white on (stopped)",
+              c & (1 << 6) and c & (1 << 7) and not c & (1 << 8) and h.r32(GPIO["B"] + 0x0C) & (1 << 7))
 
     for name, ok, detail in results:
         print("%-62s %s %s" % (name, "ok  " if ok else "FAIL", "" if ok else detail))
     failed = sum(not ok for _, ok, _ in results)
-    print("BUSREL: %d image checks, %d failed, %.2f s emulated" % (len(results), failed, b.cycles / HCLK))
+    print("%s: %d image checks, %d failed, %.2f s emulated" % (VARIANT_NAMES[variant], len(results), failed, b.cycles / HCLK))
     return 1 if failed else 0
 
 

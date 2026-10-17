@@ -40,6 +40,7 @@ ever run unattended.
 | --- | --- | --- | --- |
 | 2026-10-17 20:31 | 1 | INERT `57ea823` | Flashed through the custom path (2.6 s, `update: ok`) and started. Then no device answered on the bus, steppers included: Kalico's first session sent 37 frames (253 bytes), received 0 frames and 236 bytes (its own echo), with no CRC error; the second session got 2 frames out of 43, with one CRC mismatch. No reply storm. No motion |
 | 2026-10-17 20:35 | – | INERT in flash | A power cycle with `mcu_update` (CFS in its loader): every device answered |
+| 2026-10-17 23:19 | bisection 1 | BUS-RELEASE `e0ba6efc` | Flashed (`update: ok`). Steppers not found, as with INERT. With no CFS connected the steppers work, so the CFS holds the bus electrically while this image runs. The loader checks only length and CRC (`0x08000A38`) and jumps 3 s after `start_app`; staying in the loader would not hold the bus |
 | 2026-10-17 20:36 | 0.3 (recovery) | runtime-config v3.22 (reference) | Flashed through the custom path (14 s, `update: ok`). Bus, steppers and CFS back. Flashed again at 21:02 (`update: ok`); Kalico sees `firmware_features` 215, protocol 2 |
 
 Stage 0 is therefore met with the box's own reference image, v3.22: the custom
@@ -57,6 +58,7 @@ verified working, and ends by restoring it.
 | Phase | Image | What it does | Pass | Read-out |
 | --- | --- | --- | --- | --- |
 | 1 | **BUS-RELEASE** (`--variant busrel`, variant 4, about 1 KiB) | PA2 a GPIO held high from reset, the clock set up, then nothing: no USART, no frame sent, no other pin or peripheral touched, interrupts masked. A fault only releases the bus | The X/Y steppers are found by Kalico again. The CFS itself is expected offline | Pass: running minimal OpenCFS code does not disturb the bus. Fail: the cause lies in reset, clock or the loader handoff |
+| 1b | **BUS-LED** (`--variant busled`, variant 5) | BUS-RELEASE plus one red slot LED per start-up stage: slot 1 = image running, slot 2 = PA2 high, slot 3 = 120 MHz clock up, slot 4 blinking = final loop. Slot 1 white = fault | Built after phase 1 failed on 2026-10-17 (steppers lost with BUS-RELEASE too; they work with no CFS connected) | All four, blinking: the code runs and holds PA2 high, so a high PA2 is not a released bus on this board. Fewer: the start-up stops at the first unlit stage |
 | 2 | USART minimal (not built yet) | Phase 1 plus USART1 at 230400; then passive reception; then one controlled diagnostic reply; then enumeration | The steppers stay found at each sub-step | The first sub-step that loses them is the cause |
 
 Electrical reference, without extra flashes: the CFS 5 V and the bus A/B

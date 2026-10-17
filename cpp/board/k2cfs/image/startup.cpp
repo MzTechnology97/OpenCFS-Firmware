@@ -92,14 +92,31 @@ extern "C" [[gnu::naked]] void Fault_Handler() {
         ".ltorg\n");
 }
 
+#if CFS_IMAGE_VARIANT == 5
+// BUS-LED: stage n lights slot n's red LED (PC6..PC9, open-collector drivers,
+// high = on). Register access only, so it works before .data/.bss.
+static void stage_led(int n) {
+    using namespace cfs::gd32;
+    using namespace cfs::board;
+    reg(RCU_APB2EN) |= APB2_PC;
+    pin_write(pins::kLedB[n], true);
+    pin_mode(pins::kLedB[n], PinMode::OutputPP);
+}
+#define STAGE(n) stage_led(n)
+#else
+#define STAGE(n) ((void)0)
+#endif
+
 extern "C" void opencfs_reset() {
     using namespace cfs::gd32;
     asm volatile("cpsid i" ::: "memory");
+    STAGE(0);  // the image runs
     // First of all, free the RS-485 bus. This board has no direction pin: the
     // transceiver follows TX (PA2), and anything but a high PA2 holds the bus
     // for every device on it, steppers included (docs/10 section 2). The loader
     // reset GPIOA before the jump, so PA2 floats until it is driven here.
     cfs::image::release_bus();
+    STAGE(1);  // PA2 held high
     for (uint32_t i = 0; i < 3; ++i) {  // the loader cleared them; do not rely on it
         reg(NVIC_ICER + 4 * i) = 0xFFFFFFFFu;
         reg(NVIC_ICPR + 4 * i) = 0xFFFFFFFFu;
@@ -108,6 +125,7 @@ extern "C" void opencfs_reset() {
     asm volatile("dsb\nisb" ::: "memory");
 
     cfs::image::clock_init();
+    STAGE(2);  // 120 MHz clock up
 
     const uint32_t* src = &_sidata;
     for (uint32_t* dst = &_sdata; dst < &_edata;) *dst++ = *src++;
@@ -138,8 +156,13 @@ void fault_safe_state() {
     using namespace board;
     asm volatile("cpsid i" ::: "memory");
     release_bus();  // a stopped box must not hold the bus
-#if CFS_IMAGE_VARIANT == 4
-    // BUS-RELEASE never configures a motor pin; a fault must not either.
+#if CFS_IMAGE_VARIANT >= 4
+    // BUS-RELEASE and BUS-LED never configure a motor pin; a fault must not either.
+#if CFS_IMAGE_VARIANT == 5
+    reg(RCU_APB2EN) |= APB2_PB;
+    pin_write(pins::kLedA[0], true);  // slot 1 white LED: a fault was taken
+    pin_mode(pins::kLedA[0], PinMode::OutputPP);
+#endif
     for (;;) {
     }
 #endif

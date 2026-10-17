@@ -8,6 +8,7 @@ Three variants (docs/spec/13 section 5), each in its own directory:
   inert     OpenCFS-INERT    boot and RS-485 only, no output can be driven
   bench     OpenCFS-BENCH    INERT plus the 0x7B sensor and actuator test commands
   busrel    OpenCFS-BUSREL   diagnostic: PA2 held high, clock up, then nothing (no USART)
+  busled    OpenCFS-BUSLED   BUSREL plus one slot LED per start-up stage
 
 Each one is compiled with arm-none-eabi-g++, linked at 0x08003000
 (board/k2cfs/image/gd32f303xe_app.ld) and checked. The output is an ELF, a map
@@ -16,7 +17,7 @@ and an unsealed raw binary. With --seal it is also a sealed, named binary
 carrying the Creality header (version, CRC-16, length). Nothing here talks to a
 printer or flashes anything.
 
-usage: build_image.py [--variant release|inert|bench|busrel|all] [--toolchain DIR] [--out DIR]
+usage: build_image.py [--variant release|inert|bench|busrel|busled|all] [--toolchain DIR] [--out DIR]
                       [--seal] [--boot cfs0_050_G32] [--app cfs0_000_153]
 """
 import argparse
@@ -37,7 +38,7 @@ APP_BASE, PARAM_PAGE, RAM_END = 0x08003000, 0x0807F800, 0x20010000
 HEADER = slice(0x200, 0x212)
 INFO_OFF = 0x220
 VARIANTS = {"release": (1, "OpenCFS-RELEASE"), "inert": (2, "OpenCFS-INERT"), "bench": (3, "OpenCFS-BENCH"),
-            "busrel": (4, "OpenCFS-BUSREL")}
+            "busrel": (4, "OpenCFS-BUSREL"), "busled": (5, "OpenCFS-BUSLED")}
 BOOT_RE, APP_RE = re.compile(r"^cfs\d+_\d+_G\d+$"), re.compile(r"^cfs\d+_\d+_\d+$")
 
 CPU = ["-mcpu=cortex-m4", "-mthumb", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"]

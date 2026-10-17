@@ -9,7 +9,7 @@
 namespace cfs {
 
 struct BuildInfo {
-    enum Variant : uint8_t { Release = 1, Inert = 2, Bench = 3, BusRelease = 4 };
+    enum Variant : uint8_t { Release = 1, Inert = 2, Bench = 3, BusRelease = 4, BusLed = 5 };
     enum Flags : uint8_t { MotionLocked = 1u << 0, SettingsReadOnly = 1u << 1, VendorKeys = 1u << 2 };
     enum BenchLevel : uint8_t { NotBench = 0, SensorsOnly = 1, ActuatorTest = 2 };
 

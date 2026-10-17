@@ -176,7 +176,9 @@ A fourth, diagnostic variant, **BUS-RELEASE** (`--variant busrel`, variant 4,
 `OpenCFS-BUSREL`), is phase 1 of the bus bisection (`15-hardware-test-plan.md`).
 It holds PA2 high from reset, sets up the clock, and stops there: no USART, no
 frame, no other pin, interrupts masked. Its fault handler only releases the bus.
-It cannot answer `0x7A`; its identity is in the file at `+0x220`.
+It cannot answer `0x7A`; its identity is in the file at `+0x220`. **BUS-LED**
+(`--variant busled`, variant 5) adds one red slot LED per start-up stage and a
+white LED on a fault, so the start-up can be followed without the bus.
 
 The loader's `F0 06` still erases the parameter page at every update; INERT and
 BENCH only add no writes of their own.
