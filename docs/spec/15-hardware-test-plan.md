@@ -6,15 +6,17 @@ ever run unattended.
 
 ## Principles
 
-- **Prove the path with stock first.** The first flash through the custom-image
-  path carries Creality's own 153 image. OpenCFS is flashed only once that path
-  and the recovery have both worked twice.
+- **Prove the path with a known-good image first.** The reference image is the
+  firmware the box already runs well: Creality stock, or a K2-OpenHost build
+  such as runtime-config v3.22. It is the first image through the custom path,
+  and it is the recovery image. OpenCFS is flashed only once that path and the
+  recovery have both worked.
 - **One new thing per stage.** Each stage adds one class of risk: boot and bus,
   then sensors, then one actuator, then filament. Motion stays disabled in the
   build until stage 3.
-- **Recovery is the stock update path**, and it needs nothing from the
-  application (`08-loader-and-recovery.md` §6.1): power cycle, enumeration
-  within the loader's 30 s window, stock image, `start_app`.
+- **Recovery is the custom path with the reference image**, and it needs nothing
+  from the application (`08-loader-and-recovery.md` §6.1): power cycle, enumeration
+  within the loader's 30 s window, reference image, `start_app`.
 - **Abort** at any surprise: stop Klipper, switch the CFS off from the T113 (MCU
   rail) or at the mains, then recover to stock. Report before trying again.
 - **Unchanged rules:** no RFID writes, Kalico untouched, vendor keys only on the
@@ -36,9 +38,14 @@ ever run unattended.
 
 | Date | Stage | Image | Result |
 | --- | --- | --- | --- |
-| 2026-10-17 | 1, run before stage 0 | INERT `57ea823` | Flashed and started (`update: ok`). After start-up the RS-485 bus stopped working for every device: steppers, RFID and CFS. No motion. Recovered by flashing through the custom path. Cause not proven; two candidates closed in the image since (`13-application.md` §4). **Stage 0 first** before the next attempt |
+| 2026-10-17 20:36 | 1 | INERT `57ea823` | Flashed through the custom path and started (`update: ok`). After start-up the RS-485 bus stopped working for every device: steppers, RFID and CFS. No motion. Cause not proven; two candidates closed in the image since (`13-application.md` §4) |
+| 2026-10-17 21:02 | 0.3 (recovery) | runtime-config v3.22 (reference) | Flashed through the custom path (`update: ok`). Bus, steppers and CFS back; Kalico sees `firmware_features` 215, protocol 2 |
 
-## Stage 0 — stock only
+Stage 0 is therefore met with the box's own reference image, v3.22: the custom
+path flashed an image, and the recovery brought the reference back through the
+same path. Flashing Creality stock adds nothing on this box.
+
+## Stage 0 — reference image only
 
 **0.1 Baseline.** With stock 153 and Kalico as they are, record:
 - the mcu_update log (`fw.cur_ver`, boot version, UUID);
@@ -50,7 +57,8 @@ ever run unattended.
 
 Read-only except for the load and unload, which the owner runs.
 
-**0.2 Rehearse the custom path with the stock image.** With Klipper stopped
+**0.2 Rehearse the custom path with the reference image** (stock 153 shown; on
+a box that runs a K2-OpenHost build, use that build). With Klipper stopped
 (host evidence):
 
 ```
@@ -65,13 +73,13 @@ Pass:
 
 The box mode returns to standard, because `F0 06` erased the parameter page.
 
-**0.3 Rehearse recovery.** Flash the stock image again through the same custom
+**0.3 Rehearse recovery.** Flash the reference image again through the same custom
 path and time it, from the power cycle to `start_app`. The normal stock update
 (`apply --cfs` with the real list) is **not** a recovery here: it updates only a
 CFS whose generation is lower than the listed one or whose application is
 invalid (`08-loader-and-recovery.md` §6.2). Stock, the K2-OpenHost
 `cfs0_000_153` builds and OpenCFS all report 153, so it would leave any of them
-in place. Recovery always means the custom path with the stock image (same
+in place. Recovery always means the custom path with the reference image (same
 version allowed, no comparison in JSON mode).
 
 **0.4 Back to the box's previous firmware.** If the box ran a K2-OpenHost build
