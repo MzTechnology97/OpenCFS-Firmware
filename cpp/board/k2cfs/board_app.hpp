@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The OpenCFS application on the K2 CFS board (docs/13-application.md). This
-// file only wires Board and cfs::App; the vector table, reset handler and main()
-// that call it belong to the image build and are not part of this repository.
+// file only wires Board and cfs::App; the vector table, reset handler and entry
+// that call it are in image/ (EXPERIMENTAL, not qualified on hardware).
 #pragma once
 
 #include <cstdint>
@@ -11,11 +11,25 @@
 
 namespace cfs::board {
 
+// Build variant (docs/13-application.md section 5), fixed at construction and
+// applied before any peripheral is set up.
+struct BoardVariant {
+    bool motion_locked = false;       // INERT, BENCH: no output can be driven by the application
+    bool settings_read_only = false;  // INERT, BENCH: the parameter page is never written
+};
+
 class BoardApp {
 public:
     static constexpr uint32_t kEnvironmentMs = 1000;  // stock `lcd` thread period
 
-    explicit BoardApp(uint8_t address);
+    // Something to run once per loop pass (the BENCH command watchdog).
+    class Service {
+    public:
+        virtual ~Service() = default;
+        virtual void service(uint32_t now_ms) = 0;
+    };
+
+    explicit BoardApp(uint8_t address, const BoardVariant& variant = {});
 
     void init();       // board peripherals, clock idle hook, application
     void loop_once();  // one main-loop pass
@@ -26,15 +40,20 @@ public:
     void on_exti10_15_irq() { board_.on_exti_fg(); }
 
     App& app() { return app_; }
+    Board& board() { return board_; }
+    const BoardVariant& variant() const { return variant_; }
+    void set_service(Service* s) { service_ = s; }
 
 private:
     static void idle();     // clock idle hook while a routine sleeps
     void service_board();   // Board::tick_1ms() once per elapsed millisecond
 
     static BoardApp* active_;
+    BoardVariant variant_;
     Board board_;
     Hardware hw_;
     App app_;
+    Service* service_ = nullptr;
     uint32_t board_ms_ = 0;
     uint32_t next_env_ms_ = 0;
     bool in_service_ = false;

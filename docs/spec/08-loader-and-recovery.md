@@ -95,3 +95,112 @@ Still unverified: that the installed loader is byte-identical to this one, the
 behavior when power fails between two chunks (the CRC check catches it), and the
 bank-1 path for parts with more than 512 KiB (`0x0807FFFF` boundary). The bank-1
 path does not apply to a 512 KiB part.
+
+## 5. The jump to the application, seen from the image
+
+The handoff at `0x08001304..0x0800135E` puts GPIOA and USART1 through a reset
+(`RCU_APB2RST` bit 2, `RCU_APB1RST` bit 17), clears all eight NVIC enable and
+pending words, loads MSP from `0x08003000` and branches to the reset vector. It
+does **not** stop SysTick: the loader's 1 ms tick (HCLK/8, interrupt on) is
+still running, and SysTick is a system exception the NVIC clear does not touch.
+TIMER1 is not reset either, but its NVIC line stays disabled. An image must
+therefore accept a SysTick exception as soon as it unmasks interrupts, before it
+programs its own tick.
+
+**The jump reads the new stack.** The handoff is a function with the frame
+`push {r0, r1, r2, lr}`. After `msr msp` it still pops that frame, now from the
+image's stack:
+
+```
+08001354  msr  msp, r2        ; MSP = word at 0x08003000
+08001358  add  sp, #0xc
+0800135a  ldr  lr, [sp], #4   ; reads MSP + 0x0C, leaves SP = MSP + 0x10
+0800135e  bx   r3             ; reset vector
+```
+
+So the initial MSP must leave at least 16 bytes of SRAM above it. Stock uses
+`0x20006EE8`. An image with MSP at the very end of SRAM (`0x20010000`) makes the
+loader read `0x2001000C` and fault before the jump: the CFS stays in the
+loader's fault handler with PA2 floating, which holds the bus for every device.
+This is what happened to every OpenCFS image flashed on 2026-10-17. The image
+then starts with SP = MSP + 0x10 and should set MSP again itself. The OpenCFS image masks interrupts until VTOR points at
+its own table and its SysTick handler does nothing until the application exists
+(`13-application.md` §4).
+
+## 6. Creality's updater, `mcu_util_485`
+
+`/usr/bin/mcu_util_485` on the T113 (SHA-256 `dcf3a631…84d8`, 38 444 bytes, the
+same file on the CM5 research copy), called by `/etc/init.d/mcu_update` as
+`mcu_util_485 -i /dev/ttyS5 -d <fw dir> -b 230400 [-c] [-j /tmp/cfs_update.json]`.
+Addresses below are in that ARM32 Linux binary [code].
+
+### 6.1 Sequence for one CFS
+
+`mcu_update` power-cycles the boards first. The CFS is therefore in its loader,
+inside the 30 s window, when `mcu_util_485` enumerates it, and the assignment
+keeps it in the loader (§1). Every step below talks to the **loader**, never to
+the application. The application does not need to handle `0xF0`.
+
+| State (`0x1881e..`) | Frame | Notes |
+| --- | --- | --- |
+| `get_salve_info`, `set_salve_addr` | `A1`, `A0` | enumeration (`03-rs485-protocol.md` §6) |
+| `get_version` | `F0 00` | reply `boot-app`, e.g. `cfs0_050_G32-cfs0_000_153`, stored per device at `+0x29` |
+| `get_sector_size` | `F0 03` | |
+| `erase_flash` | `F0 06` | **CFS only** (`0x15030`: device type 1): the parameter page `0x0807F800` is erased at every update, before the image is sent |
+| `update_request` | `F0 01` | payload is the single byte `01` (`0x15198`) |
+| `app_len` | 4 bytes | file length from `lseek` (`0x135f0`) |
+| `app_data` | chunks | read from the file and sent as they are |
+| `update_end` | – | the loader reports the image complete |
+| `start_app` | `F0 02` | payload `02` only (`0x1567c`). NACK when the loader finds the image invalid (§1, CRC or length) |
+
+The version string is never sent to the CFS. What the CFS reports afterwards
+comes from the 12 bytes at image `+0x200`, read back by the loader.
+
+### 6.2 Which file, and what the file name is used for
+
+- **Directory mode** (no `-j`, `0x13088`): the device's boot version must have
+  `_` at positions 4 and 8 (`0x12f88`, else "invalid version"). The files in the
+  firmware directory are filtered by name prefix = the 12-character boot version
+  (`0x12c2c`; names starting with `.` are skipped, the `.bin` suffix is not
+  checked). Exactly one match is required ("we should keep only one firmware
+  file"). The first 25 characters of its name become `bin_ver` (`0x13398`).
+- **Whether to update** (`0x1366c`): a CFS is updated when its reported version
+  is only the boot part (13 characters) or ends in `000_000` (no valid
+  application). Otherwise `version.json` decides: for the entry whose `boot_ver`
+  matches, update when `atoi(current app version + 9)` is **lower** than
+  `atoi(app_ver + 9)`. Only the numeric generation after the second `_` counts.
+- **JSON mode** (`-j`, `0x13450`): the entry whose `uuid` matches the device's
+  unique ID (`"xx xx …"`) gives the file path. The update is done without any
+  version comparison. `bin_ver` is the first 25 characters of the base name, and
+  only if it is longer than 25.
+- `bin_ver` is used for the log and for `/tmp/.485_mcu_version`. It is not part
+  of the protocol.
+
+**What this changes.** The `start_app NACK` of the first custom image on
+2026-10-06 came from that image's stale CRC and length
+(k2-openhost-t113-bootstrap #11), which is exactly the loader's validity check.
+The file name only changed the logged and recorded version
+(`cfs0_050_G32-3cf3385dcbc5`); it did not reach the CFS.
+
+### 6.3 Rules for an OpenCFS image
+
+- **Version at `+0x200`:** 12 ASCII characters `cfs0_000_NNN`. The loader stores
+  any 12 bytes; the stock updater only reads the digits after the second `_`.
+  K2-OpenHost's validator and packager require the `cfsN_NNN_NNN` form and a
+  file name `<boot>-<version>[-suffix].bin` that matches it.
+- **The generation `NNN` is a policy choice.** On a system that runs stock
+  `mcu_update` with a non-empty `version.json` (stock slot A, or a stock OTA), a
+  CFS whose generation is lower than the listed one is reflashed with stock
+  automatically. With `153`, a stock 153 list leaves OpenCFS in place and a
+  newer stock release replaces it. K2-OpenHost slot B keeps that list empty
+  (`apply --cfs` only).
+- **The parameter page is erased by every update** through this tool (`F0 06`).
+  OpenCFS must, and does, treat an erased page as defaults (mode 0).
+- **Recovery** needs nothing from the application: power cycle, enumeration
+  within 30 s, update. A broken image cannot prevent it, because the application
+  only runs after the window.
+- **Recovery uses the custom path.** A normal update with the stock list does
+  not replace a valid image of the same generation, so a misbehaving
+  `cfs0_000_153` image stays until it is flashed explicitly (JSON mode,
+  `k2oh-mcu-fw apply --cfs --cfs-image <stock> ...`). Only an invalid image
+  (the loader reports `000_000`) is replaced by a normal update.

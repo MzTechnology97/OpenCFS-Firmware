@@ -84,7 +84,25 @@ bool Dispatcher::background_safe(uint8_t cmd) {
     case Cmd::UniqueId:
     case Cmd::RuntimeConfig:  // SET/RESET are refused by the motion interlock anyway
     case Cmd::TagInfo:
+    case Cmd::BuildInfo:
         return true;
+    default:
+        return false;
+    }
+}
+
+bool Dispatcher::starts_motion(const Frame& f) {
+    switch (static_cast<Cmd>(f.cmd)) {
+    case Cmd::Tracking:      // print tracking runs buffer refills
+    case Cmd::ManualFeeder:
+    case Cmd::ManualHub:
+    case Cmd::Load:
+    case Cmd::Unload:
+    case Cmd::FeedDistance:
+    case Cmd::FeedToHub:
+        return true;
+    case Cmd::RfidControl:   // sub 2/3: insertion sequence with feed, pretension, scan
+        return f.len >= 2 && (f.payload[1] == 2 || f.payload[1] == 3);
     default:
         return false;
     }
@@ -257,10 +275,20 @@ void Dispatcher::handle(const Frame& f) {
     if (f.addr == AutoAddress::kUnassigned || f.addr == AutoAddress::kBroadcast) {
         return;  // only auto-addressing uses these addresses
     }
+    // Requests carry 0xFF; a status in the header means a reply: this box's own
+    // echo on a transceiver that hears itself, or another box answering a 0xEB
+    // broadcast. Handling it would answer the answer, forever, and hold the bus
+    // for every device on it (docs/03 section 2.1).
+    if (f.header != kHeaderBoxRequest) return;
     silent_ = f.addr == kAddrSilentBroadcast;
     reply_addr_ = f.addr == kAddrBoxBroadcast ? kAddrBoxBroadcast : address_;
     if (background_ && !background_safe(f.cmd)) {
         reply(f.cmd, Status::Busy);
+        return;
+    }
+    if (extension_ && !background_ && f.addr == address_ && extension_->handle(f)) return;
+    if (motion_locked_ && starts_motion(f)) {
+        reply(f.cmd, Status::MotionLocked);
         return;
     }
     const uint8_t* p = f.payload;
@@ -522,6 +550,16 @@ void Dispatcher::handle(const Frame& f) {
         if (check_len(f, 1)) {
             const uint8_t v = p[0] == 0xFF ? 0 : static_cast<uint8_t>(p[0] + 1);
             reply(f.cmd, Status::Ok, &v, 1);
+        }
+        break;
+    case Cmd::BuildInfo:
+        if (check_len(f, 0)) {
+            if (!build_) {
+                reply(f.cmd, Status::InvalidParam);
+                break;
+            }
+            uint8_t v[kBuildInfoLen];
+            reply(f.cmd, Status::Ok, v, encode_build_info(*build_, v));
         }
         break;
     case Cmd::Reboot:

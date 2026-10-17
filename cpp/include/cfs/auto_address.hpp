@@ -13,6 +13,7 @@ enum class AutoCmd : uint8_t { Assign = 0xA0, Discover = 0xA1, Online = 0xA2, Ta
 
 class AutoAddress {
 public:
+    static constexpr uint8_t kReplyLen = 14;  // device type, mode, uid[12]
     static constexpr uint8_t kUnassigned = 0xFE;
     static constexpr uint8_t kBroadcast = 0xFF;
     static constexpr uint32_t kDiscoverWindowMs = 1000;  // random reply delay 0..1000 ms

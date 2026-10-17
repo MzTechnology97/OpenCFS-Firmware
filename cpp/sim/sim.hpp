@@ -64,7 +64,10 @@ public:
     void run(Dir dir, uint8_t speed) override {
         hub_dir_ = dir;
         hub_speed_ = speed;
-        if (speed) motion_since_idle_check_ = true;
+        if (speed) {
+            motion_since_idle_check_ = true;
+            ++motor_commands;
+        }
     }
     void stop() override { hub_speed_ = 0; }
     bool blocked() override { return hub_blocked; }
@@ -81,6 +84,7 @@ public:
         return !moved && hub_speed_ == 0;
     }
     bool motion_since_idle_check_ = false;
+    uint32_t motor_commands = 0;  // feeder/hub run() calls with a non-zero speed
 
     // Odometer
     float position_mm() override { return odom_; }
@@ -110,7 +114,11 @@ public:
     void set_mode(uint8_t m) override { mode_ = m; }
 
     // Transport
-    void write(const uint8_t* data, size_t len) override { tx.insert(tx.end(), data, data + len); }
+    void write(const uint8_t* data, size_t len) override {
+        tx.insert(tx.end(), data, data + len);
+        if (echo) inject(now_, std::vector<uint8_t>(data, data + len));  // the box hears itself
+    }
+    bool echo = false;
     bool read_byte(uint8_t& b) override;
     // Queue host bytes, delivered from `at_ms` on.
     void inject(uint32_t at_ms, const std::vector<uint8_t>& bytes);

@@ -40,7 +40,7 @@ void Feeders::init() {
 // low, direction 1 the opposite, speed 0 sets both high (brake). Any non-zero speed
 // is full on. Which way the spool turns for direction 0 is not verified on hardware.
 void Feeders::run(int slot, Dir dir, uint8_t speed) {
-    if (speed == 0) {
+    if (speed == 0 || (allowed_ != kAllSlots && allowed_ != slot)) {
         stop(slot);
         return;
     }
@@ -106,23 +106,40 @@ void Hub::init() {
     pin_write(pins::kHubBrake, true);
     pin_mode(pins::kHubBrake, PinMode::OutputPP);
     pin_mode(pins::kHubDir, PinMode::OutputPP);
-    pin_mode(pins::kHubPwm, PinMode::AltPP);
     pin_mode(pins::kHubFg, PinMode::InputPull);
     pin_pull(pins::kHubFg, true);
     tim_.enable_channel(kHubPwmChannel);
-    apply_output(0.0f);
+    apply_output(0.0f);  // compare at the inactive level before the pin can see it
+    pwm_pin_to_timer(allowed_);
+    initialized_ = true;
+}
+
+// The PWM is active low: as a GPIO the pin is held high (off).
+void Hub::pwm_pin_to_timer(bool timer) {
+    if (timer) {
+        pin_mode(pins::kHubPwm, PinMode::AltPP);
+    } else {
+        pin_write(pins::kHubPwm, true);
+        pin_mode(pins::kHubPwm, PinMode::OutputPP);
+    }
+}
+
+void Hub::set_allowed(bool allowed) {
+    if (!allowed) stop();
+    allowed_ = allowed;
+    if (initialized_) pwm_pin_to_timer(allowed);
 }
 
 void Hub::apply_output(float out) {
-    if (out < 0.0f) out = 0.0f;
-    if (out > 255.0f) out = 255.0f;
+    if (out < 0.0f || !allowed_) out = 0.0f;
+    if (out > static_cast<float>(cap_)) out = static_cast<float>(cap_);
     // Active low: the driver sees `out`/255 of the period low.
     const uint32_t steps = tim_.steps();
     tim_.set_compare(kHubPwmChannel, static_cast<uint16_t>(steps - (steps * static_cast<uint32_t>(out)) / 255u));
 }
 
 void Hub::run(Dir dir, uint8_t speed) {
-    if (speed == 0) {
+    if (speed == 0 || !allowed_) {
         stop();
         return;
     }
@@ -421,6 +438,7 @@ void FlashSettings::set_mode(uint8_t m) {
 // Same sequence as stock (0x08011DF0): erase the page, then program the record
 // word by word. The rest of the page stays erased.
 bool FlashSettings::save() {
+    if (read_only_) return true;  // RAM only: nothing failed, nothing written
     uint8_t raw[params::kRecordSize];
     params::encode(rec_, raw);
     fmc_unlock();
@@ -447,20 +465,32 @@ bool FlashSettings::save() {
 // ---- board -------------------------------------------------------------------------------
 Board::Board() = default;
 
+void Board::configure(bool motion_locked, bool settings_read_only) {
+    feeders_.set_allowed(motion_locked ? Feeders::kNoSlot : Feeders::kAllSlots);
+    hub_.set_allowed(!motion_locked);
+    settings_.set_read_only(settings_read_only);
+}
+
 void Board::init() {
     clock.init();
     gpio_clocks_on();
-    reg(RCU_APB2EN) |= APB2_TIMER0;
-    reg(RCU_APB1EN) |= APB1_USART1;
-    reg(AFIO_PCF0) |= PCF0_TIMER0_FULL_REMAP;
 
+    // RS-485 first (docs/spec/10 section 2): the transceiver has no direction
+    // pin and follows TX, so PA2 must never be low or floating outside a
+    // transmission. It stays a GPIO held high until the USART runs and idles
+    // high, and only then becomes the USART TX.
+    pin_write(pins::kRs485Tx, true);
+    pin_mode(pins::kRs485Tx, PinMode::OutputPP);
+    pin_mode(pins::kRs485Rx, PinMode::InputFloat);
+    reg(RCU_APB1EN) |= APB1_USART1;
+    usart_.init(230400, kApb1Hz);
+    pin_mode(pins::kRs485Tx, PinMode::AltPP);
+    nvic_enable(IRQ_USART1);
+
+    reg(RCU_APB2EN) |= APB2_TIMER0;
+    reg(AFIO_PCF0) = (reg(AFIO_PCF0) & ~PCF0_SWJ_MASK) | PCF0_SWJ_NONJTRST | PCF0_TIMER0_FULL_REMAP;
     tim0_.init(20000, static_cast<uint16_t>(kTimerClkHz / 20000));  // hub 20 kHz
     adc_.init();
-
-    pin_mode(pins::kRs485Tx, PinMode::AltPP);
-    pin_mode(pins::kRs485Rx, PinMode::InputFloat);
-    usart_.init(230400, kApb1Hz);
-    nvic_enable(IRQ_USART1);
 
     // FG on PE11: EXTI line 11, port E (4), rising edge.
     reg(AFIO_EXTISS0 + 8) = (reg(AFIO_EXTISS0 + 8) & ~(0xFu << 12)) | (4u << 12);
