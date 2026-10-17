@@ -14,7 +14,10 @@ What is checked before any hardware qualification, and how.
 
 Result on 2026-10-17: 320 host checks, 101 host-code conformance checks
 (73 frames), 0 analyzer warnings. Images: RELEASE 31 KiB flash and 3 KiB RAM
-(29 emulated checks), INERT 31 KiB (34), BENCH 33 KiB (49). The emulator runs
+(29 emulated checks), INERT 31 KiB (34), BENCH 33 KiB (49). Every run starts with
+the loader's jump: modelled (it reads MSP + 0x0C and enters with SP = MSP + 0x10),
+or the real 2025 loader code when `CFS_LOADER_BIN` points to a local dump. The
+images flashed on 2026-10-17 fail at that jump. The emulator runs
 with an echoing receiver, and checks PA2 (the RS-485 TX, which holds the bus
 when it is not high) from the first instructions on, during a stopped start-up
 and after a fault. The INERT image flashed on 2026-10-17 fails 7 of those checks.

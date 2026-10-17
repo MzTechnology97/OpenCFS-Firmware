@@ -29,6 +29,7 @@ readers and the motor drivers are not represented. Needs `pip install unicorn`.
 
 usage: image_boot_test.py IMAGE.bin    (sealed or unsealed, linked at 0x08003000)
 """
+import os
 import struct
 import sys
 
@@ -236,7 +237,11 @@ class Board:
 
     def run_instructions(self, n):
         pc = self.uc.reg_read(A.UC_ARM_REG_PC)
-        self.uc.emu_start(pc | 1, 0xFFFFFFFF, count=n)
+        try:
+            self.uc.emu_start(pc | 1, 0xFFFFFFFF, count=n)
+        except UcError as e:
+            self.problems.append("emulation stopped at 0x%08x: %s" % (self.uc.reg_read(A.UC_ARM_REG_PC), e))
+            self.handoff_failed = self.uc.reg_read(A.UC_ARM_REG_PC) < APP
 
     def pa2_released(self):
         """The bus is free: PA2 a GPIO output held high, or the TX of a running USART."""
@@ -284,9 +289,33 @@ class Board:
         # but SysTick still running with its interrupt (HCLK/8, 1 ms at 120 MHz).
         self.w32(SYST + 4, HCLK // 8 // 1000 - 1)
         self.w32(SYST, 0x3)
-        self.uc.reg_write(A.UC_ARM_REG_MSP, self.sp0)
-        self.uc.reg_write(A.UC_ARM_REG_SP, self.sp0)
+        loader = os.environ.get("CFS_LOADER_BIN")
+        if loader:
+            # Run the loader's own jump code (0x0800134C..0x0800135E) from a
+            # loader stack frame whose [sp + 4] holds the application base.
+            self.loader_bytes = open(loader, "rb").read()[:0x3000]
+            self.uc.mem_write(FLASH, self.loader_bytes)
+            sp = SRAM + 0x2000
+            self.w32(sp + 4, APP)
+            self.uc.reg_write(A.UC_ARM_REG_MSP, sp)
+            self.uc.reg_write(A.UC_ARM_REG_SP, sp)
+            self.uc.reg_write(A.UC_ARM_REG_PC, 0x0800134C)
+            return
+        # The same jump, modelled: msr msp from the vector table, then the
+        # loader pops its frame from the new stack: it reads MSP + 0x0C and
+        # enters the image with SP = MSP + 0x10 (docs/08 section 5).
+        msp = self.sp0
+        if not (SRAM <= msp + 0x0C and msp + 0x10 <= RAM_TOP):
+            self.problems.append("loader jump reads 0x%08x, outside SRAM: the loader faults before "
+                                 "the image runs" % (msp + 0x0C))
+            self.handoff_failed = True
+        self.uc.reg_write(A.UC_ARM_REG_MSP, msp + 0x10)
+        self.uc.reg_write(A.UC_ARM_REG_SP, msp + 0x10)
+        self.uc.reg_write(A.UC_ARM_REG_LR, 0xFFFFFFFF)
         self.uc.reg_write(A.UC_ARM_REG_PC, self.reset)
+
+    handoff_failed = False
+    loader_bytes = b"\xff" * 0x3000
 
     def frames(self):
         out, buf = [], bytes(self.tx)
@@ -339,6 +368,13 @@ def main():
                     and e & HUB_PWM and pwm_gpio)
 
     check("image info at +0x220 names a variant", variant in VARIANT_NAMES, info.hex())
+    check("the loader's jump stays in SRAM (reads MSP+0x0C, enters with SP = MSP+0x10)",
+          not b.handoff_failed, "; ".join(b.problems))
+    if b.handoff_failed:
+        for name, ok, detail in results:
+            print("%-62s %s %s" % (name, "ok  " if ok else "FAIL", "" if ok else detail))
+        print("%s: the image never runs after the loader's jump" % VARIANT_NAMES.get(variant, "?"))
+        return 1
     locked = variant in (2, 3)
     if variant in (4, 5):
         return busrel(image, b, check, results, variant)
@@ -360,7 +396,7 @@ def main():
     check("feeders braked (IN1 = IN2 = high)", octl_d & FEEDER_PINS_D == FEEDER_PINS_D, hex(octl_d))
     check("hub brake on", b.r32(GPIO["E"] + 0x0C) & HUB_BRAKE)
     check("loader and application area untouched",
-          b.uc.mem_read(APP, len(image)) == image and b.uc.mem_read(FLASH, 0x3000) == b"\xff" * 0x3000)
+          b.uc.mem_read(APP, len(image)) == image and b.uc.mem_read(FLASH, 0x3000) == b.loader_bytes)
     if locked:
         check("no flash unlock, erase or write (parameter page read-only)",
               not b.fmc_unlocks and not b.erases and not b.flash_writes,
@@ -564,7 +600,7 @@ def busrel(image, b, check, results, variant=4):
     check("never transmits: no byte sent to discovery or 0x14", not b.tx, b.tx.hex())
     check("no flash unlock, erase or write", not b.fmc_unlocks and not b.erases and not b.flash_writes)
     check("loader and image unchanged",
-          b.uc.mem_read(APP, len(image)) == image and b.uc.mem_read(FLASH, 0x3000) == b"\xff" * 0x3000)
+          b.uc.mem_read(APP, len(image)) == image and b.uc.mem_read(FLASH, 0x3000) == b.loader_bytes)
 
     before = len(b.gpio_writes)
     b.allow_fault = True

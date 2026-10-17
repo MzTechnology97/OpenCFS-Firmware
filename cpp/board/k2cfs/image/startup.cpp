@@ -67,10 +67,13 @@ static_assert(sizeof(VectorTable) == 0x150, "vector table must stay below the +0
 
 }  // namespace
 
-// The FPU must be on before any compiled code runs: the image uses the
-// hard-float ABI. Nothing else happens before opencfs_reset().
+// The loader enters with SP = MSP + 0x10 (its jump pops a frame from our new
+// stack, docs/08 section 5), so MSP is set again first. The FPU must then be on
+// before any compiled code runs: the image uses the hard-float ABI.
 extern "C" [[gnu::naked]] void Reset_Handler() {
     asm volatile(
+        "ldr r0, =_estack\n"
+        "msr msp, r0\n"
         "ldr r0, =0xE000ED88\n"  // SCB CPACR
         "ldr r1, [r0]\n"
         "orr r1, r1, #0x00F00000\n"  // CP10, CP11 full access

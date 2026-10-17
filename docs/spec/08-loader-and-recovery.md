@@ -105,7 +105,25 @@ does **not** stop SysTick: the loader's 1 ms tick (HCLK/8, interrupt on) is
 still running, and SysTick is a system exception the NVIC clear does not touch.
 TIMER1 is not reset either, but its NVIC line stays disabled. An image must
 therefore accept a SysTick exception as soon as it unmasks interrupts, before it
-programs its own tick. The OpenCFS image masks interrupts until VTOR points at
+programs its own tick.
+
+**The jump reads the new stack.** The handoff is a function with the frame
+`push {r0, r1, r2, lr}`. After `msr msp` it still pops that frame, now from the
+image's stack:
+
+```
+08001354  msr  msp, r2        ; MSP = word at 0x08003000
+08001358  add  sp, #0xc
+0800135a  ldr  lr, [sp], #4   ; reads MSP + 0x0C, leaves SP = MSP + 0x10
+0800135e  bx   r3             ; reset vector
+```
+
+So the initial MSP must leave at least 16 bytes of SRAM above it. Stock uses
+`0x20006EE8`. An image with MSP at the very end of SRAM (`0x20010000`) makes the
+loader read `0x2001000C` and fault before the jump: the CFS stays in the
+loader's fault handler with PA2 floating, which holds the bus for every device.
+This is what happened to every OpenCFS image flashed on 2026-10-17. The image
+then starts with SP = MSP + 0x10 and should set MSP again itself. The OpenCFS image masks interrupts until VTOR points at
 its own table and its SysTick handler does nothing until the application exists
 (`13-application.md` §4).
 

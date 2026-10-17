@@ -119,6 +119,9 @@ def verify(raw, nm_out, variant):
     number, name = VARIANTS[variant]
     sp, reset = struct.unpack_from("<II", raw, 0)
     check(0x20000000 < sp <= RAM_END and sp % 8 == 0, "initial MSP 0x%08x outside SRAM" % sp)
+    # The loader's jump reads MSP + 0x0C and enters with SP = MSP + 0x10 (docs/spec/08 section 5).
+    check(sp + 0x10 <= RAM_END, "initial MSP 0x%08x too close to the end of SRAM: the loader's jump "
+          "reads 0x%08x and faults" % (sp, sp + 0x0C))
     check(reset & 1 and APP_BASE <= (reset & ~1) < APP_BASE + len(raw),
           "reset vector 0x%08x not a Thumb address inside the image" % reset)
     check(all(b == 0xFF for b in raw[HEADER]), "+0x200..+0x211 is not reserved for the header")

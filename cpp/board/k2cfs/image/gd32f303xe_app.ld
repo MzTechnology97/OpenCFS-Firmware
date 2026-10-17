@@ -17,7 +17,13 @@ MEMORY
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 64K
 }
 
-_estack = ORIGIN(RAM) + LENGTH(RAM);
+/* Initial MSP 32 bytes below the end of SRAM. The loader's jump
+ * (0x0800134C..0x0800135E) sets MSP from our vector table and then, on the new
+ * stack, pops its own frame: it reads MSP + 0x0C and enters the image with
+ * SP = MSP + 0x10. With MSP at the very end of SRAM that read faults inside the
+ * loader and the image never runs (2026-10-17: the bus held by a CFS stuck in
+ * the loader's fault handler). Stock uses MSP 0x20006EE8. */
+_estack = ORIGIN(RAM) + LENGTH(RAM) - 32;
 _min_stack = 0x1000;
 
 SECTIONS

@@ -74,7 +74,7 @@ builds one locally.
 
 | File | Content |
 | --- | --- |
-| `gd32f303xe_app.ld` | Flash `0x08003000..0x0807F7FF`, SRAM 64 KiB, MSP at `0x20010000`. Vector table at `0x08003000` (`0x150` bytes), 18 erased bytes at `+0x200` for the Creality header, link-time checks that the image stays out of the loader and the parameter page |
+| `gd32f303xe_app.ld` | Flash `0x08003000..0x0807F7FF`, SRAM 64 KiB, MSP at `0x2000FFE0` (32 bytes below the end of SRAM: the loader's jump reads MSP + 0x0C, `08-loader-and-recovery.md` §5). Vector table at `0x08003000` (`0x150` bytes), 18 erased bytes at `+0x200` for the Creality header, link-time checks that the image stays out of the loader and the parameter page |
 | `startup.cpp` | Vector table, `Reset_Handler`, fault handling, C++ runtime stubs (no heap, no exceptions, nothing registered for exit) |
 | `system_gd32f303.cpp` | The clock set-up of §2 |
 | `main.cpp` | One `BoardApp` at address `0xFE`, `init()`, then `loop_once()` forever; SysTick, USART1 and EXTI10-15 handlers |
