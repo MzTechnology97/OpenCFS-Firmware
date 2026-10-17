@@ -46,6 +46,23 @@ Stage 0 is therefore met with the box's own reference image, v3.22: the custom
 path flashed an image, and the recovery brought the reference back through the
 same path. Flashing Creality stock adds nothing on this box.
 
+## Bus bisection (after the two INERT attempts of 2026-10-17)
+
+Both INERT images stopped every device on the bus while OpenCFS ran; the
+reference v3.22 brought it back each time. Before any further INERT, RELEASE or
+BENCH attempt, the software part that breaks the bus is located step by step,
+with motors never configured. Each step starts from the reference firmware,
+verified working, and ends by restoring it.
+
+| Phase | Image | What it does | Pass | Read-out |
+| --- | --- | --- | --- | --- |
+| 1 | **BUS-RELEASE** (`--variant busrel`, variant 4, about 1 KiB) | PA2 a GPIO held high from reset, the clock set up, then nothing: no USART, no frame sent, no other pin or peripheral touched, interrupts masked. A fault only releases the bus | The X/Y steppers are found by Kalico again. The CFS itself is expected offline | Pass: running minimal OpenCFS code does not disturb the bus. Fail: the cause lies in reset, clock or the loader handoff |
+| 2 | USART minimal (not built yet) | Phase 1 plus USART1 at 230400; then passive reception; then one controlled diagnostic reply; then enumeration | The steppers stay found at each sub-step | The first sub-step that loses them is the cause |
+
+Electrical reference, without extra flashes: the CFS 5 V and the bus A/B
+voltages measured with the v3.22 running. They are measured during a failure
+only if the bisection gives no answer.
+
 ## Stage 0 — reference image only
 
 **0.1 Baseline.** With stock 153 and Kalico as they are, record:

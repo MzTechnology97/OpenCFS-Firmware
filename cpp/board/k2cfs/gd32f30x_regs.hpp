@@ -63,6 +63,10 @@ enum class PinMode : uint32_t {
 constexpr uint32_t AFIO_PCF0 = AFIO + 0x04;
 constexpr uint32_t AFIO_EXTISS0 = AFIO + 0x08;  // EXTISS0..3, 4 bits per line
 constexpr uint32_t PCF0_TIMER0_FULL_REMAP = 3u << 6;
+// SWJ_CFG (bits 26:24) is write-only and reads as 0, so a read-modify-write of
+// PCF0 would write 000 (full JTAG) back. Stock writes 001: SWJ without NJTRST,
+// which frees PB4 (a slot LED) and keeps SWD.
+constexpr uint32_t PCF0_SWJ_MASK = 7u << 24, PCF0_SWJ_NONJTRST = 1u << 24;
 
 // ---- EXTI ------------------------------------------------------------------
 constexpr uint32_t EXTI_INTEN = EXTI + 0x00, EXTI_RTEN = EXTI + 0x08, EXTI_FTEN = EXTI + 0x0C,

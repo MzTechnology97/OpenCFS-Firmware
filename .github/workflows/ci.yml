@@ -98,6 +98,6 @@ jobs:
       - name: Boot each linked image in an emulator (Unicorn, minimal GD32F303 model)
         run: |
           python3 -m venv /tmp/emu && /tmp/emu/bin/pip install --quiet unicorn
-          for v in release inert bench; do
+          for v in release inert bench busrel; do
             /tmp/emu/bin/python cpp/tests/image_boot_test.py build-arm/$v/opencfs-unsealed.bin
           done

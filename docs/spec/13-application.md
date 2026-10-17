@@ -172,6 +172,12 @@ bytes are identical to the K2-OpenHost Build-Tools packager's.
 | `0x7B` test commands | not in the image | not in the image | present |
 | `0x7A` identity | variant 1 | variant 2, flags 3 | variant 3, flags 3, bench level |
 
+A fourth, diagnostic variant, **BUS-RELEASE** (`--variant busrel`, variant 4,
+`OpenCFS-BUSREL`), is phase 1 of the bus bisection (`15-hardware-test-plan.md`).
+It holds PA2 high from reset, sets up the clock, and stops there: no USART, no
+frame, no other pin, interrupts masked. Its fault handler only releases the bus.
+It cannot answer `0x7A`; its identity is in the file at `+0x220`.
+
 The loader's `F0 06` still erases the parameter page at every update; INERT and
 BENCH only add no writes of their own.
 

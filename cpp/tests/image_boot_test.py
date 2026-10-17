@@ -73,6 +73,8 @@ class Board:
         uc.mem_write(FLASH, b"\xff" * FLASH_SIZE)
         uc.mem_write(APP, image)
         uc.mem_write(0x1FFFF7E8, UID)
+        for g in GPIO.values():  # reset state: every pin a floating input
+            uc.mem_write(g, struct.pack("<II", 0x44444444, 0x44444444))
         self.image = image
         self.cycles = 0
         self.reads_in_chunk = 0
@@ -86,6 +88,8 @@ class Board:
         self.hxtal_ok = hxtal_ok
         self.echo = echo
         self.bus_problems = []       # PA2 (RS-485 TX) ever low or handed to a USART that is off
+        self.gpio_writes = []        # (address, value) of GPIO CTL0/CTL1/BOP/BC writes
+        self.usart_writes = 0
         vec = struct.unpack_from("<84I", image, 0)
         self.sp0, self.reset = vec[0], vec[1]
         self.systick_handler, self.usart_handler, self.fault = vec[15], vec[16 + IRQ_USART1], vec[3]
@@ -97,6 +101,9 @@ class Board:
             uc.hook_add(UC_HOOK_MEM_READ, self._read, begin=base, end=base + size - 1)
         watched = [USART1 + 4, FMC + 0x10, FMC + 0x04, GPIO["E"] + 0x04, GPIO["A"]]
         watched += [g + off for g in GPIO.values() for off in (0x10, 0x14)]
+        for g in GPIO.values():
+            uc.hook_add(UC_HOOK_MEM_WRITE, self._log_gpio, begin=g, end=g + 0x17)
+        uc.hook_add(UC_HOOK_MEM_WRITE, self._log_usart, begin=USART1, end=USART1 + 0xFF)
         for base in watched:
             uc.hook_add(UC_HOOK_MEM_WRITE, self._write_periph, begin=base, end=base + 3)
         self.nvic_enabled = [0, 0, 0]  # ISER is write-one-to-set, ICER write-one-to-clear
@@ -180,6 +187,15 @@ class Board:
                 self.problems.append("page erase at 0x%08x" % page)
             else:
                 uc.mem_write(PARAM, b"\xff" * 0x800)
+        return True
+
+    def _log_gpio(self, uc, _access, addr, size, value, _data):
+        if (addr & 0x3FF) in (0x00, 0x04, 0x10, 0x14):
+            self.gpio_writes.append((addr, value))
+        return True
+
+    def _log_usart(self, uc, _access, addr, size, value, _data):
+        self.usart_writes += 1
         return True
 
     def _write_nvic(self, uc, _access, addr, size, value, _data):
@@ -291,7 +307,7 @@ class Board:
 
 FEEDER_PINS_D = 0xF00F                # PD0..3, PD12..15: AT8236 IN1/IN2 of the four feeders
 HUB_BRAKE, HUB_PWM = 1 << 4, 1 << 13  # PE4, PE13
-VARIANT_NAMES = {1: "RELEASE", 2: "INERT", 3: "BENCH"}
+VARIANT_NAMES = {1: "RELEASE", 2: "INERT", 3: "BENCH", 4: "BUSREL"}
 
 
 def main():
@@ -324,6 +340,8 @@ def main():
 
     check("image info at +0x220 names a variant", variant in VARIANT_NAMES, info.hex())
     locked = variant in (2, 3)
+    if variant == 4:
+        return busrel(image, b, check, results)
 
     # RS-485 (docs/10 section 2): the transceiver follows TX, so PA2 must free
     # the bus from the first instructions on, long before the clock is up.
@@ -462,6 +480,69 @@ def main():
     failed = sum(not ok for _, ok, _ in results)
     print("%s: %d image checks, %d failed, %.2f s emulated"
           % (VARIANT_NAMES.get(variant, "?"), len(results), failed, b.cycles / HCLK))
+    return 1 if failed else 0
+
+
+def only_pa2(writes):
+    """True when every GPIO write only made PA2 an output held high."""
+    for addr, value in writes:
+        port, reg = addr & ~0x3FF, addr & 0x3FF
+        if port != GPIO["A"]:
+            return False
+        if reg == 0x00 and value & ~(0xF << 8) != 0x44444444 & ~(0xF << 8):
+            return False  # another pin of GPIOA CTL0 left its reset mode (floating input)
+        if reg == 0x04:
+            return False
+        if reg == 0x10 and value != (1 << 2):
+            return False
+        if reg == 0x14:
+            return False
+    return True
+
+
+def busrel(image, b, check, results):
+    """BUS-RELEASE (docs/15, bus bisection phase 1): PA2 high, clock up, nothing else."""
+    b.run_instructions(300)
+    check("RS-485 TX (PA2) a GPIO held high within 300 instructions of reset",
+          (b.r32(GPIO["A"]) >> 8) & 0xF == 0x3 and b.r32(GPIO["A"] + 0x0C) & (1 << 2))
+    b.run_ms(2000)
+    check("no fault, emulation healthy", not b.faults and not b.problems, "; ".join(b.problems))
+    cfg0 = b.r32(RCU + 4) & ~(0x3 << 14 | 1 << 28 | 0xC)
+    check("clock CFG0 as stock (120 MHz from HXTAL)", cfg0 == 0x08370402, hex(cfg0))
+    check("VTOR = 0x08003000", b.r32(0xE000ED08) == APP)
+    check("after 2 s PA2 is still a GPIO held high (USART never given the pin)",
+          (b.r32(GPIO["A"]) >> 8) & 0xF == 0x3 and b.r32(GPIO["A"] + 0x0C) & (1 << 2) and not b.bus_problems,
+          hex(b.r32(GPIO["A"])))
+    check("USART1 never touched", b.usart_writes == 0, "%d writes" % b.usart_writes)
+    check("no other pin configured or driven (only PA2)", only_pa2(b.gpio_writes),
+          str([(hex(a), hex(v)) for a, v in b.gpio_writes][:6]))
+    b.rx += frame(0xFE, 0x00, 0xA1, b"\xFE\xFE")
+    b.rx += frame(0x01, 0xFF, 0x14, b"")
+    b.run_ms(1500)
+    check("never transmits: no byte sent to discovery or 0x14", not b.tx, b.tx.hex())
+    check("no flash unlock, erase or write", not b.fmc_unlocks and not b.erases and not b.flash_writes)
+    check("loader and image unchanged",
+          b.uc.mem_read(APP, len(image)) == image and b.uc.mem_read(FLASH, 0x3000) == b"\xff" * 0x3000)
+
+    before = len(b.gpio_writes)
+    b.allow_fault = True
+    b.uc.reg_write(A.UC_ARM_REG_PC, b.fault)
+    b.run_ms(5)
+    check("fault: bus stays free (PA2 GPIO high), no motor pin configured or driven",
+          b.faults > 0 and (b.r32(GPIO["A"]) >> 8) & 0xF == 0x3 and b.r32(GPIO["A"] + 0x0C) & (1 << 2)
+          and only_pa2(b.gpio_writes[before:]), str([(hex(a), hex(v)) for a, v in b.gpio_writes[before:]][:6]))
+
+    h = Board(image, hxtal_ok=False)
+    h.start()
+    h.run_ms(200)
+    check("no HXTAL: start-up stops, bus free, nothing else touched",
+          (h.r32(GPIO["A"]) >> 8) & 0xF == 0x3 and h.r32(GPIO["A"] + 0x0C) & (1 << 2)
+          and only_pa2(h.gpio_writes) and h.usart_writes == 0 and not h.tx)
+
+    for name, ok, detail in results:
+        print("%-62s %s %s" % (name, "ok  " if ok else "FAIL", "" if ok else detail))
+    failed = sum(not ok for _, ok, _ in results)
+    print("BUSREL: %d image checks, %d failed, %.2f s emulated" % (len(results), failed, b.cycles / HCLK))
     return 1 if failed else 0
 
 

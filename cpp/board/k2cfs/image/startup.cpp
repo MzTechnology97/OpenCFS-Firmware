@@ -138,6 +138,11 @@ void fault_safe_state() {
     using namespace board;
     asm volatile("cpsid i" ::: "memory");
     release_bus();  // a stopped box must not hold the bus
+#if CFS_IMAGE_VARIANT == 4
+    // BUS-RELEASE never configures a motor pin; a fault must not either.
+    for (;;) {
+    }
+#endif
     reg(RCU_APB2EN) |= APB2_PD | APB2_PE;  // no effect if the board already did it
     for (int s = 0; s < 4; ++s) {          // AT8236 IN1 = IN2 = high: brake
         pin_write(pins::kFeederIn1[s], true);

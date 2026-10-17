@@ -7,6 +7,9 @@
 //   CFS_IMAGE_VARIANT 2  INERT    boot and RS-485 only: no output can be driven,
 //                                 the parameter page is never written
 //   CFS_IMAGE_VARIANT 3  BENCH    INERT plus the 0x7B test commands (bench.hpp)
+//   CFS_IMAGE_VARIANT 4  BUS-RELEASE  diagnostic: PA2 held high from reset, the
+//                                 clock set up, then nothing. No USART, no frame
+//                                 sent, no other pin or peripheral touched.
 #include <cstdint>
 #include <new>
 
@@ -29,14 +32,15 @@
 namespace {
 
 constexpr uint8_t kVariant = CFS_IMAGE_VARIANT;
-static_assert(kVariant >= cfs::BuildInfo::Release && kVariant <= cfs::BuildInfo::Bench, "bad CFS_IMAGE_VARIANT");
+static_assert(kVariant >= cfs::BuildInfo::Release && kVariant <= cfs::BuildInfo::BusRelease, "bad CFS_IMAGE_VARIANT");
 constexpr bool kLocked = kVariant != cfs::BuildInfo::Release;
 constexpr uint8_t kFlags = (kLocked ? cfs::BuildInfo::MotionLocked | cfs::BuildInfo::SettingsReadOnly : 0) |
                            (CFS_HAVE_CREALITY_KEYS || CFS_HAVE_VENDOR_KEYS ? cfs::BuildInfo::VendorKeys : 0);
 
 constexpr const char* variant_name() {
     return kVariant == cfs::BuildInfo::Inert ? "OpenCFS-INERT" :
-           kVariant == cfs::BuildInfo::Bench ? "OpenCFS-BENCH" : "OpenCFS-RELEASE";
+           kVariant == cfs::BuildInfo::Bench ? "OpenCFS-BENCH" :
+           kVariant == cfs::BuildInfo::BusRelease ? "OpenCFS-BUSREL" : "OpenCFS-RELEASE";
 }
 
 // Identity at the fixed offset +0x220 of the image, so a host tool can tell the
@@ -96,6 +100,13 @@ extern "C" void EXTI10_15_IRQHandler() {
 namespace cfs::image {
 
 void main_loop() {
+#if CFS_IMAGE_VARIANT == 4
+    // Phase 1 of the bus bisection (docs/15): the reset handler already holds PA2
+    // high and set up the clock. Nothing else runs; interrupts stay masked, so
+    // even the SysTick the loader left running is never taken.
+    asm volatile("cpsid i" ::: "memory");
+    for (;;) asm volatile("wfi");
+#endif
     board::BoardVariant v;
     v.motion_locked = kLocked;
     v.settings_read_only = kLocked;

@@ -488,7 +488,7 @@ void Board::init() {
     nvic_enable(IRQ_USART1);
 
     reg(RCU_APB2EN) |= APB2_TIMER0;
-    reg(AFIO_PCF0) |= PCF0_TIMER0_FULL_REMAP;
+    reg(AFIO_PCF0) = (reg(AFIO_PCF0) & ~PCF0_SWJ_MASK) | PCF0_SWJ_NONJTRST | PCF0_TIMER0_FULL_REMAP;
     tim0_.init(20000, static_cast<uint16_t>(kTimerClkHz / 20000));  // hub 20 kHz
     adc_.init();
 
