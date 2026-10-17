@@ -474,17 +474,23 @@ void Board::configure(bool motion_locked, bool settings_read_only) {
 void Board::init() {
     clock.init();
     gpio_clocks_on();
-    reg(RCU_APB2EN) |= APB2_TIMER0;
-    reg(RCU_APB1EN) |= APB1_USART1;
-    reg(AFIO_PCF0) |= PCF0_TIMER0_FULL_REMAP;
 
+    // RS-485 first (docs/spec/10 section 2): the transceiver has no direction
+    // pin and follows TX, so PA2 must never be low or floating outside a
+    // transmission. It stays a GPIO held high until the USART runs and idles
+    // high, and only then becomes the USART TX.
+    pin_write(pins::kRs485Tx, true);
+    pin_mode(pins::kRs485Tx, PinMode::OutputPP);
+    pin_mode(pins::kRs485Rx, PinMode::InputFloat);
+    reg(RCU_APB1EN) |= APB1_USART1;
+    usart_.init(230400, kApb1Hz);
+    pin_mode(pins::kRs485Tx, PinMode::AltPP);
+    nvic_enable(IRQ_USART1);
+
+    reg(RCU_APB2EN) |= APB2_TIMER0;
+    reg(AFIO_PCF0) |= PCF0_TIMER0_FULL_REMAP;
     tim0_.init(20000, static_cast<uint16_t>(kTimerClkHz / 20000));  // hub 20 kHz
     adc_.init();
-
-    pin_mode(pins::kRs485Tx, PinMode::AltPP);
-    pin_mode(pins::kRs485Rx, PinMode::InputFloat);
-    usart_.init(230400, kApb1Hz);
-    nvic_enable(IRQ_USART1);
 
     // FG on PE11: EXTI line 11, port E (4), rising edge.
     reg(AFIO_EXTISS0 + 8) = (reg(AFIO_EXTISS0 + 8) & ~(0xFu << 12)) | (4u << 12);

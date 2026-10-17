@@ -12,9 +12,12 @@ What is checked before any hardware qualification, and how.
 | **Emulated boot of each image** | `cpp/tests/image_boot_test.py` on the RELEASE, INERT and BENCH binaries (Unicorn, Cortex-M4, minimal GD32F303 model) | The real binary, from its reset vector, with SysTick still running as the loader leaves it: no fault; VTOR, the clock register and SysTick set up as stock; feeders and hub braked; the loader area and the image unchanged; auto-addressing (`A1` → one reply with the UID, `A0` → three replies) and a command at the new address, with valid CRC-8; `0x7A` names the same variant as the file's `+0x220` block. **RELEASE:** on a blank parameter page it erases and programs only `0x0807F800` with a valid record, and a filament insertion does drive a feeder (so the drive check can see one). **INERT and BENCH:** no flash unlock, erase or write; motion commands answer `0x07`; no feeder or hub output driven on the commands or on a filament insertion; the hub PWM pin never given to TIMER0. **BENCH:** starts in SENSORS_ONLY; jog refused before ARM; ARM refused with a wrong unique ID; out-of-range jogs refused; normal motion commands still refused while armed; a 60 ms feeder jog drives only that slot's input and brakes after; a hub jog gives the PWM pin to TIMER0 only for its duration; a stall and a 5 s link loss go back to SENSORS_ONLY; the fault test raises a real fault that brakes everything. Every build: a fault brakes every output and holds the hub PWM pin high |
 | Static analysis | MSVC `/analyze` (local), `cppcheck` (CI, non-blocking for now) | No analyzer warnings on core and board sources |
 
-Result on 2026-10-16: 314 host checks, 101 host-code conformance checks
+Result on 2026-10-17: 320 host checks, 101 host-code conformance checks
 (73 frames), 0 analyzer warnings. Images: RELEASE 31 KiB flash and 3 KiB RAM
-(21 emulated checks), INERT 31 KiB (26), BENCH 33 KiB (42).
+(29 emulated checks), INERT 31 KiB (34), BENCH 33 KiB (49). The emulator runs
+with an echoing receiver, and checks PA2 (the RS-485 TX, which holds the bus
+when it is not high) from the first instructions on, during a stopped start-up
+and after a fault. The INERT image flashed on 2026-10-17 fails 7 of those checks.
 
 The emulator is a model: peripherals answer at once, analog inputs read 0, I2C
 lines read released (no RFID reader, sensor or EEPROM answers), and interrupts

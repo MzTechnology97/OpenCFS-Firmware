@@ -32,6 +32,12 @@ ever run unattended.
 | P5 | Watchdog: none, as stock, for stages 1–2; decide before stage 3 | owner's decision |
 | P6 | A recorded stock baseline (stage 0.1) to compare against | to collect |
 
+## Hardware results
+
+| Date | Stage | Image | Result |
+| --- | --- | --- | --- |
+| 2026-10-17 | 1, run before stage 0 | INERT `57ea823` | Flashed and started (`update: ok`). After start-up the RS-485 bus stopped working for every device: steppers, RFID and CFS. No motion. Recovered by flashing through the custom path. Cause not proven; two candidates closed in the image since (`13-application.md` §4). **Stage 0 first** before the next attempt |
+
 ## Stage 0 — stock only
 
 **0.1 Baseline.** With stock 153 and Kalico as they are, record:

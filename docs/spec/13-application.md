@@ -97,6 +97,28 @@ PWM pin high as a plain GPIO output so TIMER0 can no longer drive it. Then it wa
 forever. There is no watchdog (§3), so the box stays there until it is power-cycled;
 the loader then starts again and keeps its 30 s update window.
 
+**RS-485 bus.** The transceiver has no direction pin and follows TX (PA2)
+(`10-board-port.md` §2), so a low or floating PA2 holds the bus for every
+device on it, steppers included. The image therefore:
+- makes PA2 a GPIO output held high as its first action after reset. The
+  loader resets GPIOA before the jump, so PA2 floats until then;
+- hands PA2 to USART1 only after the USART runs and idles high;
+- sets up the USART before any other peripheral;
+- holds PA2 high again in the safe state, so a stopped box is silent and the bus
+  is free;
+- turns the receiver off while it sends and drops what it caught;
+- ignores frames that are replies, not requests (`03-rs485-protocol.md` §2.1).
+
+On 2026-10-17 the first INERT image on the reference printer (`57ea823`, without
+these measures) held the bus after start-up. The steppers and the CFS lost
+communication; nothing moved. It was recovered by flashing through the custom
+path. The cause is not proven. In the emulator, that image left PA2 floating
+before the clock and handed it to a USART that was not yet running. With a
+receiver that hears its own transmission it also entered an endless reply
+exchange: 2 184 frames for one request. The stock receiver has no defence
+against such an echo, which makes the echo the less likely cause. Both causes
+are closed in the current image and covered by `image_boot_test.py`.
+
 **USART1 overrun.** With RBNEIE set, an overrun raises the interrupt without RBNE
 and the flag stays until STAT0 then DATA are read. The interrupt handler now does
 that read, so a burst on the bus cannot lock the loop out with a stream of

@@ -114,7 +114,11 @@ public:
     void set_mode(uint8_t m) override { mode_ = m; }
 
     // Transport
-    void write(const uint8_t* data, size_t len) override { tx.insert(tx.end(), data, data + len); }
+    void write(const uint8_t* data, size_t len) override {
+        tx.insert(tx.end(), data, data + len);
+        if (echo) inject(now_, std::vector<uint8_t>(data, data + len));  // the box hears itself
+    }
+    bool echo = false;
     bool read_byte(uint8_t& b) override;
     // Queue host bytes, delivered from `at_ms` on.
     void inject(uint32_t at_ms, const std::vector<uint8_t>& bytes);

@@ -14,6 +14,12 @@ and checks:
 - INERT and BENCH: no flash write at all, motion commands refused (0x07), and no
   feeder or hub output ever driven, not even on a filament insertion; the hub
   PWM pin never reaches TIMER0. RELEASE: the same insertion does drive a feeder;
+- echo: the receiver hears every byte the box sends (worst case for an always
+  enabled transceiver); one request must give one reply, never a reply storm;
+- RS-485: the board has no direction pin, so PA2 (TX) must free the bus at all
+  times: a GPIO held high within 300 instructions of reset, the USART's TX only
+  once the USART runs, never low, and a GPIO held high again after a fault or
+  when start-up stops (no crystal);
 - BENCH: starts in SENSORS_ONLY, ARM needs the box's unique ID, bounded jogs
   drive one output only and brake after, a stall and a 5 s link loss disarm,
   and the fault test raises a real fault that brakes everything.
@@ -58,7 +64,7 @@ def frame(addr, hdr, cmd, payload=b""):
 
 
 class Board:
-    def __init__(self, image):
+    def __init__(self, image, hxtal_ok=True, echo=False):
         self.uc = uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS)
         uc.ctl_set_cpu_model(A.UC_CPU_ARM_CORTEX_M4)
         for base, size in ((FLASH, FLASH_SIZE), (SYSMEM, 0x1000), (SRAM, 0x10000),
@@ -77,6 +83,9 @@ class Board:
         self.cleared = {}            # port -> output bits ever driven low
         self.hub_pwm_to_timer = 0    # PE13 switched to its alternate function
         self.fmc_unlocks = 0
+        self.hxtal_ok = hxtal_ok
+        self.echo = echo
+        self.bus_problems = []       # PA2 (RS-485 TX) ever low or handed to a USART that is off
         vec = struct.unpack_from("<84I", image, 0)
         self.sp0, self.reset = vec[0], vec[1]
         self.systick_handler, self.usart_handler, self.fault = vec[15], vec[16 + IRQ_USART1], vec[3]
@@ -86,7 +95,7 @@ class Board:
         modelled += [(g + 8, 4) for g in GPIO.values()]
         for base, size in modelled:
             uc.hook_add(UC_HOOK_MEM_READ, self._read, begin=base, end=base + size - 1)
-        watched = [USART1 + 4, FMC + 0x10, FMC + 0x04, GPIO["E"] + 0x04]
+        watched = [USART1 + 4, FMC + 0x10, FMC + 0x04, GPIO["E"] + 0x04, GPIO["A"]]
         watched += [g + off for g in GPIO.values() for off in (0x10, 0x14)]
         for base in watched:
             uc.hook_add(UC_HOOK_MEM_WRITE, self._write_periph, begin=base, end=base + 3)
@@ -107,7 +116,7 @@ class Board:
         a = addr & ~3
         if a == RCU:  # CTL: ready flags follow their enables
             v = self.r32(a) | 0x2
-            if v & (1 << 16): v |= 1 << 17
+            if v & (1 << 16) and self.hxtal_ok: v |= 1 << 17
             if v & (1 << 24): v |= 1 << 25
             self.w32(a, v)
         elif a == RCU + 4:  # CFG0: SCSS follows SCS
@@ -146,14 +155,24 @@ class Board:
             else:
                 octl &= ~low
             self.cleared[port] = self.cleared.get(port, 0) | low
+            if port == GPIO["A"] and low & (1 << 2):
+                self.bus_problems.append("PA2 driven low as a GPIO")
             self.w32(port + 0x0C, octl)
         elif addr == GPIO["E"] + 0x04:
             if (value >> 20) & 0xF == 0xB:
                 self.hub_pwm_to_timer += 1
+        elif addr == GPIO["A"]:  # CTL0: PA2 is the RS-485 TX, and the bus follows it
+            mode = (value >> 8) & 0xF
+            if mode == 0x3 and not self.r32(GPIO["A"] + 0x0C) & (1 << 2):
+                self.bus_problems.append("PA2 made an output while low")
+            if mode == 0xB and self.r32(USART1 + 0x0C) & 0x2008 != 0x2008:
+                self.bus_problems.append("PA2 given to USART1 before it runs (UEN, TEN)")
         elif addr == FMC + 0x04:
             self.fmc_unlocks += 1
         elif addr == USART1 + 4:
             self.tx.append(value & 0xFF)
+            if self.echo and self.r32(USART1 + 0x0C) & 0x4:  # receiver on (REN) hears the TX
+                self.rx.append(value & 0xFF)
         elif addr == FMC + 0x10 and value & (1 << 6) and value & (1 << 1):  # page erase START
             page = self.r32(FMC + 0x14)
             self.erases.append(page)
@@ -198,6 +217,17 @@ class Board:
         uc.emu_start(handler | 1, RETURN_MAGIC, count=200000)
         for n, v in zip(names, saved):
             uc.reg_write(n, v)
+
+    def run_instructions(self, n):
+        pc = self.uc.reg_read(A.UC_ARM_REG_PC)
+        self.uc.emu_start(pc | 1, 0xFFFFFFFF, count=n)
+
+    def pa2_released(self):
+        """The bus is free: PA2 a GPIO output held high, or the TX of a running USART."""
+        mode = (self.r32(GPIO["A"]) >> 8) & 0xF
+        high = bool(self.r32(GPIO["A"] + 0x0C) & (1 << 2))
+        usart_on = self.r32(USART1 + 0x0C) & 0x2008 == 0x2008
+        return (mode == 0x3 and high) or (mode == 0xB and usart_on)
 
     def run_ms(self, ms, chunk=6000):
         uc = self.uc
@@ -268,7 +298,9 @@ def main():
     image = open(sys.argv[1], "rb").read()
     info = image[0x220:0x248]
     variant = info[9] if info[:8] == b"OCFSINFO" else 0
-    b = Board(image)
+    # The CFS transceiver is always enabled (docs/10 section 2): model the worst
+    # case, where the receiver hears the box's own transmission.
+    b = Board(image, echo=True)
     b.start()
     results = []
 
@@ -293,7 +325,14 @@ def main():
     check("image info at +0x220 names a variant", variant in VARIANT_NAMES, info.hex())
     locked = variant in (2, 3)
 
+    # RS-485 (docs/10 section 2): the transceiver follows TX, so PA2 must free
+    # the bus from the first instructions on, long before the clock is up.
+    b.run_instructions(300)
+    check("RS-485 TX (PA2) a GPIO held high within 300 instructions of reset",
+          b.pa2_released() and (b.r32(GPIO["A"]) >> 8) & 0xF == 0x3, hex(b.r32(GPIO["A"])))
     b.run_ms(300)
+    check("after start-up PA2 is the TX of a running USART1",
+          b.pa2_released() and (b.r32(GPIO["A"]) >> 8) & 0xF == 0xB, hex(b.r32(GPIO["A"])))
     check("boot without fault", not b.faults and not b.problems, "; ".join(b.problems))
     check("VTOR = 0x08003000", b.r32(0xE000ED08) == APP, hex(b.r32(0xE000ED08)))
     cfg0 = b.r32(RCU + 4) & ~(0x3 << 14 | 1 << 28 | 0xC)  # ADC prescaler and SCSS aside
@@ -336,6 +375,15 @@ def main():
     assign = [f for f, ok in replies if ok and f[4] == 0xA0 and f[1] == 0x01]
     check("A0 assign: three replies from address 1", len(assign) == 3, [f.hex() for f, _ in replies])
     check("command 0x14 answered at address 1", status(0x14) == 0)
+    b.rx += frame(0x01, 0xFF, 0x14, b"")
+    b.run_ms(400)
+    sent = b.frames()
+    check("own echo never answered: one request, one reply (no reply storm)", len(sent) == 1,
+          "%d frames" % len(sent))
+    b.rx += frame(0x01, 0x00, 0xA2, b"")
+    b.run_ms(400)
+    sent = b.frames()
+    check("A2 online check: one reply, its echo ignored", len(sent) == 1, "%d frames" % len(sent))
 
     bi = ask(0x7A)
     p = bi[-1][5:-1] if bi else b""
@@ -390,8 +438,24 @@ def main():
         b.run_ms(1)
         check("fault: feeders braked, hub brake on, PWM pin a GPIO held high", outputs_braked(),
               hex(b.r32(port_e + 0x04)))
+        check("fault: RS-485 TX a GPIO held high (bus free, box silent)",
+              (b.r32(GPIO["A"]) >> 8) & 0xF == 0x3 and b.r32(GPIO["A"] + 0x0C) & (1 << 2))
         check("fault: interrupts masked, MSP reset to the top of SRAM",
               b.uc.reg_read(A.UC_ARM_REG_PRIMASK) == 1 and b.uc.reg_read(A.UC_ARM_REG_MSP) > RAM_TOP - 0x40)
+
+    check("RS-485 TX never low, never handed to a stopped USART, bus free after the fault",
+          not b.bus_problems and b.pa2_released(), "; ".join(b.bus_problems[:3]))
+
+    # A board that hangs in start-up (no crystal): the bus must stay free.
+    h = Board(image, hxtal_ok=False)
+    h.start()
+    h.run_ms(200)
+    check("no HXTAL: start-up stops, bus free (PA2 a GPIO held high), no fault taken",
+          h.pa2_released() and (h.r32(GPIO["A"]) >> 8) & 0xF == 0x3 and not h.bus_problems
+          and not h.faults, hex(h.r32(GPIO["A"])))
+    h.rx += frame(0xFE, 0x00, 0xA1, b"\xFE\xFE")
+    h.run_ms(1200)
+    check("no HXTAL: the stopped box never transmits", not h.frames() and not h.tx)
 
     for name, ok, detail in results:
         print("%-62s %s %s" % (name, "ok  " if ok else "FAIL", "" if ok else detail))

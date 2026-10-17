@@ -95,6 +95,11 @@ extern "C" [[gnu::naked]] void Fault_Handler() {
 extern "C" void opencfs_reset() {
     using namespace cfs::gd32;
     asm volatile("cpsid i" ::: "memory");
+    // First of all, free the RS-485 bus. This board has no direction pin: the
+    // transceiver follows TX (PA2), and anything but a high PA2 holds the bus
+    // for every device on it, steppers included (docs/10 section 2). The loader
+    // reset GPIOA before the jump, so PA2 floats until it is driven here.
+    cfs::image::release_bus();
     for (uint32_t i = 0; i < 3; ++i) {  // the loader cleared them; do not rely on it
         reg(NVIC_ICER + 4 * i) = 0xFFFFFFFFu;
         reg(NVIC_ICPR + 4 * i) = 0xFFFFFFFFu;
@@ -118,10 +123,21 @@ extern "C" void opencfs_fault() { cfs::image::fault_safe_state(); }
 
 namespace cfs::image {
 
+// PA2 as a plain output held high: the bus idles, whatever the USART does.
+// Uses no RAM, so it can run before .data/.bss and from the fault handler.
+void release_bus() {
+    using namespace gd32;
+    using namespace board;
+    reg(RCU_APB2EN) |= APB2_PA;
+    pin_write(pins::kRs485Tx, true);  // output level first, then the mode
+    pin_mode(pins::kRs485Tx, PinMode::OutputPP);
+}
+
 void fault_safe_state() {
     using namespace gd32;
     using namespace board;
     asm volatile("cpsid i" ::: "memory");
+    release_bus();  // a stopped box must not hold the bus
     reg(RCU_APB2EN) |= APB2_PD | APB2_PE;  // no effect if the board already did it
     for (int s = 0; s < 4; ++s) {          // AT8236 IN1 = IN2 = high: brake
         pin_write(pins::kFeederIn1[s], true);

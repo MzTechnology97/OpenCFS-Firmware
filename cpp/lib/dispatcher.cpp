@@ -275,6 +275,11 @@ void Dispatcher::handle(const Frame& f) {
     if (f.addr == AutoAddress::kUnassigned || f.addr == AutoAddress::kBroadcast) {
         return;  // only auto-addressing uses these addresses
     }
+    // Requests carry 0xFF; a status in the header means a reply: this box's own
+    // echo on a transceiver that hears itself, or another box answering a 0xEB
+    // broadcast. Handling it would answer the answer, forever, and hold the bus
+    // for every device on it (docs/03 section 2.1).
+    if (f.header != kHeaderBoxRequest) return;
     silent_ = f.addr == kAddrSilentBroadcast;
     reply_addr_ = f.addr == kAddrBoxBroadcast ? kAddrBoxBroadcast : address_;
     if (background_ && !background_safe(f.cmd)) {

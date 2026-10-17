@@ -66,7 +66,12 @@ void Usart::init(uint32_t baud, uint32_t pclk_hz) {
     reg(base_ + USART_CTL0) = USART_CTL0_UEN | USART_CTL0_TEN | USART_CTL0_REN | USART_CTL0_RBNEIE;
 }
 
+// The transceiver is always enabled (docs/spec/10 section 2), so the receiver
+// may hear this box's own transmission. The receiver is off while sending and
+// whatever it caught is dropped before it is turned on again: an echo can never
+// come back as a request.
 void Usart::write_blocking(const uint8_t* data, size_t len) {
+    reg(base_ + USART_CTL0) &= ~USART_CTL0_REN;
     for (size_t i = 0; i < len; ++i) {
         while (!(reg(base_ + USART_STAT0) & USART_STAT0_TBE)) {
         }
@@ -74,6 +79,11 @@ void Usart::write_blocking(const uint8_t* data, size_t len) {
     }
     while (!(reg(base_ + USART_STAT0) & USART_STAT0_TC)) {
     }
+    for (int i = 0; i < 4 && (reg(base_ + USART_STAT0) & (USART_STAT0_RBNE | USART_STAT0_ERRORS)); ++i) {
+        const uint32_t discard = reg(base_ + USART_DATA);
+        (void)discard;
+    }
+    reg(base_ + USART_CTL0) |= USART_CTL0_REN;
 }
 
 void Usart::on_irq() {

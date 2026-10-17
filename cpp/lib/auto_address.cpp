@@ -32,6 +32,9 @@ void AutoAddress::handle(const Frame& f) {
     if (!is_auto_command(f.cmd) || !(to_me || broadcast)) {
         return;
     }
+    // Every reply is [device type, mode, uid[12]]; no request has that length.
+    // Ignoring it keeps a box from answering its own echo or another box.
+    if (f.len == kReplyLen) return;
     switch (static_cast<AutoCmd>(f.cmd)) {
     case AutoCmd::Discover:
         // Only boxes without an address answer, after a random back-off.

@@ -1328,6 +1328,30 @@ void test_build_info() {
 }
 
 
+// The CFS transceiver is always enabled (docs/10 section 2): when the box hears
+// its own replies, each request must still give exactly one reply. On the
+// reference printer an image without this filter held the bus for every device.
+void test_echo_never_answered() {
+    AppRig r;
+    r.w.echo = true;
+    auto count_after = [&](uint8_t addr, uint8_t header, uint8_t cmd, std::vector<uint8_t> payload) {
+        r.w.tx.clear();
+        r.w.inject(r.w.now_ms(), frame(addr, cmd, payload, header));
+        r.run(200);
+        return r.w.sent_frames().size();
+    };
+    CHECK(count_after(1, kHeaderBoxRequest, 0x14, {}) == 1);
+    CHECK(count_after(1, kHeaderBoxRequest, 0x0A, {}) == 1);
+    CHECK(count_after(kAddrBoxBroadcast, kHeaderBoxRequest, 0x01, {}) == 1);
+    CHECK(count_after(1, 0x00, 0xA2, {}) == 1);
+    // A reply-shaped frame (status in the header) to the own address: ignored.
+    CHECK(count_after(1, 0x00, 0x14, {}) == 0);
+    // An auto-address reply (14 bytes) to the own address: ignored.
+    std::vector<uint8_t> reply(14, 0);
+    reply[0] = 1;
+    CHECK(count_after(1, 0x00, 0xA2, reply) == 0);
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -1364,6 +1388,7 @@ int main() {
         {"vendor_formats", test_vendor_formats},
         {"motion_locked", test_motion_locked},
         {"build_info", test_build_info},
+        {"echo_never_answered", test_echo_never_answered},
         {"fuzz", test_fuzz},
     };
     for (const Test& t : tests) {

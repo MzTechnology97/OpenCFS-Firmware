@@ -38,6 +38,12 @@ Test vectors: `f7 01 04 00 f0 00 4c`, `f7 01 03 ff 14 06` [res].
   Auto-address frames (`0xFE`/`0xFF` targets, commands `A0..A3`) are handled by a
   separate module (section 6).
 - A declared length below 3 aborts the frame.
+- The stock receiver does not look at the header (`0x0800F880`). **OpenCFS
+  handles a box command only with request header `0xFF`**, and an auto-address
+  frame only when it is not reply-shaped (14 bytes). Any other frame is a reply:
+  the box's own echo, or another box answering a `0xEB` broadcast. Answering it
+  would start an endless reply exchange that holds the bus for every device
+  (`13-application.md` §4, hardware result of 2026-10-17).
 - Inter-byte timeout: 120 ms without a byte resets the receiver
   (`rs485 timeout, %d` log).
 - After a complete, CRC-valid frame the dispatcher runs in the `rs485` thread;
