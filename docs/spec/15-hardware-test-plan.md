@@ -38,8 +38,9 @@ ever run unattended.
 
 | Date | Stage | Image | Result |
 | --- | --- | --- | --- |
-| 2026-10-17 20:36 | 1 | INERT `57ea823` | Flashed through the custom path and started (`update: ok`). After start-up the RS-485 bus stopped working for every device: steppers, RFID and CFS. No motion. Cause not proven; two candidates closed in the image since (`13-application.md` §4) |
-| 2026-10-17 21:02 | 0.3 (recovery) | runtime-config v3.22 (reference) | Flashed through the custom path (`update: ok`). Bus, steppers and CFS back; Kalico sees `firmware_features` 215, protocol 2 |
+| 2026-10-17 20:31 | 1 | INERT `57ea823` | Flashed through the custom path (2.6 s, `update: ok`) and started. Then no device answered on the bus, steppers included: Kalico's first session sent 37 frames (253 bytes), received 0 frames and 236 bytes (its own echo), with no CRC error; the second session got 2 frames out of 43, with one CRC mismatch. No reply storm. No motion |
+| 2026-10-17 20:35 | – | INERT in flash | A power cycle with `mcu_update` (CFS in its loader): every device answered |
+| 2026-10-17 20:36 | 0.3 (recovery) | runtime-config v3.22 (reference) | Flashed through the custom path (14 s, `update: ok`). Bus, steppers and CFS back. Flashed again at 21:02 (`update: ok`); Kalico sees `firmware_features` 215, protocol 2 |
 
 Stage 0 is therefore met with the box's own reference image, v3.22: the custom
 path flashed an image, and the recovery brought the reference back through the
