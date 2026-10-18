@@ -1,8 +1,6 @@
 # First controlled hardware test plan (OpenCFS)
 
-Status: **plan only. Nothing here has been run, and no OpenCFS image has been
-flashed.** Every stage needs the owner's explicit go-ahead, and nothing below is
-ever run unattended.
+Status (18 October 2026): **stage-0 recovery and several controlled stage-1 INERT hardware trials have run**; both early RS-485-failing INERT images and the successful BUS-LED/INERT boot after correcting the loader/MSP boundary are recorded in the Hardware results table below. Later RELEASE, BENCH motor/RFID and long-duration stages remain unqualified. No procedure runs unattended; each new flash needs the owner's explicit approval.
 
 ## Principles
 
