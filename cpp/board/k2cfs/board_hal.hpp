@@ -144,8 +144,11 @@ class Aht30 : public Environment {
 public:
     explicit Aht30(SoftI2c& bus) : bus_(bus) {}
     bool init();
-    // Starts a measurement, waits ~80 ms (clock.sleep_ms) and caches the result.
-    bool update(Clock& clock);
+    // A measurement takes ~80 ms: start() triggers it, finish() reads and caches
+    // the result, at least kMeasureMs later. Nothing waits in between.
+    static constexpr uint32_t kMeasureMs = 80;
+    bool start();
+    bool finish();
     int8_t temperature_c() override { return temp_c_; }
     uint8_t humidity_pct() override { return hum_pct_; }
 
@@ -259,10 +262,13 @@ public:
     bool secure_element_fitted() const { return secure_element_; }
     // 1 ms housekeeping for millisecond `now`: monitors, speed loop, odometer, LEDs.
     void tick_1ms(uint32_t now);
-    // Stock `lcd` thread, 1 s: refresh temperature/humidity (sleeps ~80 ms) and
-    // show them with the box index on the front display.
-    void update_environment(uint8_t box_index) {
-        env_.update(clock);
+    // Stock `lcd` thread, 1 s: refresh temperature/humidity and show them with the
+    // box index on the front display. Two calls, Aht30::kMeasureMs apart, so the
+    // main loop never waits for the sensor: a wait here would run the dispatcher
+    // in background mode and answer host requests such as 0x08 with Busy.
+    bool start_environment() { return env_.start(); }
+    void finish_environment(uint8_t box_index, bool measured) {
+        if (measured) env_.finish();
         lcd_.show(env_.temperature_c(), env_.humidity_pct(), box_index);
     }
     // IRQ hooks.

@@ -75,6 +75,7 @@ bool Dispatcher::background_safe(uint8_t cmd) {
     case Cmd::RfidRecords:
     case Cmd::RfidRemaining:
     case Cmd::Buffer:
+    case Cmd::SensorMask:  // read-only; Kalico polls it with the box state
     case Cmd::BoxState:
     case Cmd::GetMode:
     case Cmd::Version:

@@ -83,6 +83,10 @@ class Board:
         self.flash_writes, self.erases, self.problems = [], [], []
         self.faults = 0
         self.inputs = {}             # port -> ISTAT value (default 0xFFFF: no filament)
+        # AHT30 present: its SDA (PC12) reads low, so every byte is acknowledged
+        # and reads 0x00 (not busy). The firmware then runs the real measurement
+        # path, waits included, as on the board.
+        self.inputs[GPIO["C"]] = 0xFFFF & ~(1 << 12)
         self.cleared = {}            # port -> output bits ever driven low
         self.hub_pwm_to_timer = 0    # PE13 switched to its alternate function
         self.fmc_unlocks = 0
@@ -429,6 +433,11 @@ def main():
     assign = [f for f, ok in replies if ok and f[4] == 0xA0 and f[1] == 0x01]
     check("A0 assign: three replies from address 1", len(assign) == 3, [f.hex() for f, _ in replies])
     check("command 0x14 answered at address 1", status(0x14) == 0)
+    # The 1 s environment refresh must not make the box Busy for host reads: the
+    # AHT30 measurement is never waited for (hardware 2026-10-18: 0x08 got 0x03).
+    sensor = [status(0x08, b"\x00", ms=37) for _ in range(40)]
+    check("0x08 sensor mask never Busy across 1.5 s of environment refresh",
+          sensor == [0] * 40, str(sensor))
     b.rx += frame(0x01, 0xFF, 0x14, b"")
     b.run_ms(400)
     sent = b.frames()

@@ -309,10 +309,12 @@ bool Aht30::init() {
     return true;
 }
 
-bool Aht30::update(Clock& clock) {
+bool Aht30::start() {
     const uint8_t trig[3] = {0xAC, 0x33, 0x00};
-    if (!bus_.write(kAhtAddr, trig, 3)) return false;
-    clock.sleep_ms(80);
+    return bus_.write(kAhtAddr, trig, 3);
+}
+
+bool Aht30::finish() {
     uint8_t d[7] = {};
     if (!bus_.read(kAhtAddr, d, sizeof d) || (d[0] & 0x80)) return false;  // busy
     const uint32_t hum = (static_cast<uint32_t>(d[1]) << 12) | (static_cast<uint32_t>(d[2]) << 4) | (d[3] >> 4);

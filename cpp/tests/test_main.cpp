@@ -1306,6 +1306,7 @@ void test_build_info() {
     AppRig r;
     CHECK(status_of(r.request(0x7A, {})) == 0x01);  // no identity set
     CHECK(Dispatcher::background_safe(0x7A) && !Dispatcher::background_safe(0x7B));
+    CHECK(Dispatcher::background_safe(0x08));  // sensor mask: a read, never Busy
     BuildInfo b;
     b.variant = BuildInfo::Bench;
     b.flags = BuildInfo::MotionLocked | BuildInfo::SettingsReadOnly;

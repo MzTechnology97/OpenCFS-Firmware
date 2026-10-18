@@ -56,6 +56,9 @@ private:
     Service* service_ = nullptr;
     uint32_t board_ms_ = 0;
     uint32_t next_env_ms_ = 0;
+    uint32_t env_read_ms_ = 0;  // AHT30 result due (measurement started at next_env_ms_)
+    bool env_started_ = false;
+    bool env_measuring_ = false;  // the trigger was acknowledged
     bool in_service_ = false;
 };
 

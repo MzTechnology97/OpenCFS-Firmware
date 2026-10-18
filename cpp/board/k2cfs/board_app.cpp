@@ -44,9 +44,15 @@ void BoardApp::loop_once() {
     service_board();
     if (service_) service_->service(board_.clock.now_ms());
     const uint32_t now = board_.clock.now_ms();
+    if (env_started_ && static_cast<int32_t>(now - env_read_ms_) >= 0) {
+        env_started_ = false;
+        board_.finish_environment(app_.box.box_index, env_measuring_);
+    }
     if (static_cast<int32_t>(now - next_env_ms_) >= 0) {
         next_env_ms_ = now + kEnvironmentMs;
-        board_.update_environment(app_.box.box_index);
+        env_measuring_ = board_.start_environment();
+        env_started_ = true;
+        env_read_ms_ = now + Aht30::kMeasureMs;
     }
 }
 

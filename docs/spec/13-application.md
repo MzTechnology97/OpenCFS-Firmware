@@ -30,15 +30,20 @@ run the duties again.
 while the `preload` or `print_check` thread works. In OpenCFS, `background()`
 polls the dispatcher in a restricted mode:
 
-- answered normally: `0x01` keep-alive, `0x02`, `0x03`, `0x05`, `0x0A`, `0x0C`,
-  `0x14`, `0x15`, `0x52`, `0x55`, `0x5B`, `0x57` (its SET/RESET are refused by
-  the motion interlock), `0x60`;
+- answered normally: `0x01` keep-alive, `0x02`, `0x03`, `0x05`, `0x08`, `0x0A`,
+  `0x0C`, `0x14`, `0x15`, `0x52`, `0x55`, `0x5B`, `0x57` (its SET/RESET are
+  refused by the motion interlock), `0x60`, `0x7A`;
 - every other command answers **BUSY (`0x03`)**, including those that would start
   motion, reset the odometer (`0x0E`) or change the tracking mode (`0x04`).
   Stock would run some of these concurrently; OpenCFS refuses rather than race.
 - While the dispatcher itself is blocked in a command (load stage 4 and the like),
   `background()` does not read the link: the stage's inline reader owns it, as in
   stock (`04-feeder.md` §4).
+- Only long routines may sleep. Periodic board work never waits: the AHT30
+  measurement (about 80 ms, every second) is triggered on one pass and read on
+  a later one. A board-level wait would put the idle box in this restricted
+  mode for its duration; on hardware (2026-10-18, INERT `0de8f7a`) about one
+  host request in twelve then got BUSY, Kalico's `0x08` and `0x0D` included.
 
 ## 2. Clock (stock application `SystemInit`, `0x08022796`) [code]
 
