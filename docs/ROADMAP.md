@@ -6,13 +6,13 @@ to flash a real CFS.
 | Phase | Result required | State |
 | --- | --- | --- |
 | 0 | Research links, original hardware source provenance, no OEM redistribution | In progress |
-| 1 | Reproducible portable C11 core, desktop tests, ARM object compilation, CI | Bootstrap PR |
-| 2 | Clean-room RS485 receive framing (host evidence), then sanitized real capture corpus and complete runtime protocol | RX decoder implemented, MCU/application compatibility and captures pending |
-| 3 | Host-simulated feeder and RFID transaction state machines, replay and fault injection | Not started |
-| 4 | RT-Thread and GD32 HAL BSP from compatible, pinned upstream licenses; clocks, peripherals, interrupt routing | Not started |
+| 1 | Reproducible portable C11 core, desktop tests, ARM object compilation, CI | Implemented and merged |
+| 2 | Bounded RS485 receive framing, dispatcher and host evidence | Protocol and dispatcher implemented; physical stage-1 verified, wider coverage pending |
+| 3 | Host-simulated feeder/RFID state machines and failure injection | Reference simulator implemented; complete hardware regression pending |
+| 4 | GD32 BSP, clocks, startup, physical pin mapping | Bare-metal board port + image implemented; loader/MSP start fixed and stage-1 boot verified |
 | 5 | Physical idle sensing, cross-task and ISR atomic motion interlock, brake/stop failure behavior | Not started |
-| 6 | Loader app-length/page protections, authenticated recovery and rollback, complete target memory map | Blocked |
-| 7 | Isolated spare-CFS bench smoke tests, capture/replay, power loss, RFID compatibility and end-to-end regression | Blocked |
+| 6 | Loader app-length/page protections, recovery and rollback, complete target memory map | Reference v3.22 recovery tested; full partition and interruption scenarios still open |
+| 7 | Controlled hardware stage-1 bus smoke tests, power-loss recovery, RFID and end-to-end regression | INERT bus smoke/recovery completed on owner CFS; full motion/RFID work open |
 | 8 | Reviewed reproducible target application artifact; hardware qualification evidence | Blocked |
 
 ## Immediate next implementation
@@ -31,8 +31,11 @@ to flash a real CFS.
 
 ## Hard release blockers
 
-We currently lack an independently verified GD32 chip identification,
-loader erase and application size limits, recovery/rollback, safe board
-startup, fully observed motor feedback, ISR/task ownership and protocol
-coverage. No executable CFS firmware or flashable binary shall be
-published until those gates are independently closed.
+Stage-1 MCU startup and reference-image recovery have hardware evidence,
+but exact flash/page ownership under interruption, full physical motor
+feedback, actuator safety, vendor RFID read/write protection and sustained
+bus qualification remain open. No **production-qualified** firmware shall be released until all safety,
+interruption-recovery, motion and RFID gates are closed. Experimental target
+images and controlled owner-led stage-1 tests are documented separately in
+[spec/15](spec/15-hardware-test-plan.md). The loader-MSP fault on the first
+INERT images was isolated and corrected with real hardware evidence.
