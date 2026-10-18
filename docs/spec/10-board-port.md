@@ -108,7 +108,7 @@ brake), not from the reported state. Object-only CI cannot qualify this.
 | --- | --- | --- |
 | PWM | PE13 (`pwm1`) | TIMER0 CH2, TIMER0 full remap (AFIO_PCF0 bits 7:6 = `11`), 20 kHz, active low [code] |
 | DIR | PE3 (`0x43`) | high = forward [code] |
-| BRAKE | PE4 (`0x44`) | high = brake [code] |
+| BRAKE | PE4 (`0x44`) | open-drain output (`rt_pin_mode(PE4, OUTPUT_OD)` at `0x08010FE6`): released high = brake, driven low = run [code] |
 | FG | PE11 (`0x4B`) | edge interrupt; pulse counter at `0x20004990`; 6 pulses per revolution [code][res] |
 | Fault | – | none: blocked and overload are computed from FG and the PID output [code] |
 

@@ -103,8 +103,10 @@ constexpr int kHubPwmChannel = 2;     // TIMER0 CH2 on PE13
 }  // namespace
 
 void Hub::init() {
+    // Open-drain like stock (rt_pin_mode(PE4, OUTPUT_OD), 0x08010FE6): high = released
+    // to the driver's pull-up = brake on, low = brake off.
     pin_write(pins::kHubBrake, true);
-    pin_mode(pins::kHubBrake, PinMode::OutputPP);
+    pin_mode(pins::kHubBrake, PinMode::OutputOD);
     pin_mode(pins::kHubDir, PinMode::OutputPP);
     pin_mode(pins::kHubFg, PinMode::InputPull);
     pin_pull(pins::kHubFg, true);

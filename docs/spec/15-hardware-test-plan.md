@@ -68,6 +68,30 @@ Electrical reference, without extra flashes: the CFS 5 V and the bus A/B
 voltages measured with the v3.22 running. They are measured during a failure
 only if the bisection gives no answer.
 
+## Diagnostic client (`tools/cfs_diag.py`)
+
+Stages 1–3 query the box without Kalico. `cfs_diag.py` runs on the CM5 with
+Klipper stopped (it refuses otherwise), opens `/dev/k2-rs485` at 230400 and
+needs only the Python standard library. After every CFS power cycle the box is
+at address `0xFE`, so `enumerate` comes first: `A1`, then `A0` to address 1,
+and it saves the unique ID for the ARM.
+
+| Command | Frame | Use |
+| --- | --- | --- |
+| `enumerate` | `A1`, `A0` | address the box (three `A0` replies expected) |
+| `identity` | `0x7A` | variant, bench level, revision; stock firmware does not answer it |
+| `version`, `state`, `runtime` | `0x14`, `0x0A`, `0x57` | the stage 0.1 queries |
+| `tag SLOT`, `bench-tag SLOT` | `0x60`, `0x7B 20` | RFID read in place, then the readout |
+| `bench-status`, `bench-arm`, `bench-disarm` | `0x7B 00/01/02` | BENCH level |
+| `feeder-jog SLOT DIR MS`, `hub-jog DIR SPEED MS`, `fault-test SLOT` | `0x7B 10/11/30` | stage 3 only |
+
+The motion commands run only when `0x7A` says BENCH, and only after the
+operator types the command name. They ARM the box themselves right after the
+confirmation and send the command at once: the box falls back to SENSORS_ONLY
+after 5 s without a frame. Nothing in the tool writes a tag or the flash.
+`tests/cfs_diag_test.py` runs it against the BENCH and INERT images in the
+emulator (17 checks).
+
 ## Stage 0 — reference image only
 
 **0.1 Baseline.** With stock 153 and Kalico as they are, record:
@@ -132,13 +156,18 @@ Before you start, remove the filament from all four slots.
 3. Leave it 10 minutes under Kalico's normal polling. Pass: no lost box, no
    reset, front display plausible (temperature and humidity against stock), no
    output moves.
-4. Recover to stock (0.3) and repeat 0.1's queries.
+4. Stop Klipper and run `cfs_diag.py identity` (variant INERT, the flashed
+   revision) and `runtime` (API v2, 28 parameters, features `0x2B`). Power-cycle
+   the CFS, start Klipper again: Kalico must enumerate it without the
+   runtime-config timeout (Kalico probes after `box:ready`).
+5. Recover to stock (0.3) and repeat 0.1's queries.
 
 Abort: the box missing after 60 s, repeated enumeration, or any movement.
 
 ## Stage 2 — sensors, read-only
 
-BENCH image at SENSORS_ONLY (check `0x7A`: variant 3, level 1), filament handled by hand. For each slot, against the stage
+BENCH image at SENSORS_ONLY (check `0x7A`: variant 3, level 1), filament handled by hand. With Klipper stopped:
+`cfs_diag.py enumerate`, `identity`, then `state` and `bench-tag SLOT` for each check. For each slot, against the stage
 0.1 baseline:
 
 | Sensor | Check |
