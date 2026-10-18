@@ -7,7 +7,7 @@ to flash a real CFS.
 | --- | --- | --- |
 | 0 | Research links, original hardware source provenance, no OEM redistribution | In progress |
 | 1 | Reproducible portable C11 core, desktop tests, ARM object compilation, CI | Bootstrap PR |
-| 2 | Clean-room protocol frame tests from sanitized real captures; strict bounds, CRC and timeout handling | Not started |
+| 2 | Clean-room RS485 receive framing (host evidence), then sanitized real capture corpus and complete runtime protocol | RX decoder implemented, MCU/application compatibility and captures pending |
 | 3 | Host-simulated feeder and RFID transaction state machines, replay and fault injection | Not started |
 | 4 | RT-Thread and GD32 HAL BSP from compatible, pinned upstream licenses; clocks, peripherals, interrupt routing | Not started |
 | 5 | Physical idle sensing, cross-task and ISR atomic motion interlock, brake/stop failure behavior | Not started |
@@ -19,9 +19,10 @@ to flash a real CFS.
 
 1. Build a sanitized, versioned RS485 packet capture corpus with no
    customer, printer or unique RFID identifiers.
-2. Implement a byte-stream framing parser with a **known** header,
-   CRC, length bounds and resynchronization documented by captures.
-   Never infer a wire format from a single sample.
+2. Expand the **implemented receive-only** frame decoder with actual
+   sanitized MCU captures, direction/status validation, CRC cross-checks,
+   fuzzing and resynchronization statistics. Never infer all commands
+   or loader semantics from the version-query sample.
 3. Add a deterministic host simulator of four motors with failure
    injection. Do not drive physical pins.
 4. Separate read-only hardware examination from any flash proposal.
