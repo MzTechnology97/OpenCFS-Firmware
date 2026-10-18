@@ -56,3 +56,40 @@ jobs:
           cmake --build build-sanitized --parallel 2
       - name: Run bounded protocol decoder and safety model under sanitizers
         run: ctest --test-dir build-sanitized --output-on-failure
+
+  cpp-spec-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build C++17 spec core, simulator and tests (sanitized)
+        run: |
+          cmake -S cpp -B build-cpp -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build build-cpp --parallel 2
+      - name: Run host simulation tests (includes deterministic fuzzing)
+        run: ctest --test-dir build-cpp --output-on-failure
+      - name: Conformance with the real Kalico host code (box_protocol, serial_485, box_cfs_runtime)
+        run: |
+          git clone --depth 1 --branch k2-pro-openhost https://github.com/MzTechnology97/kalico-k2pro /tmp/kalico
+          python3 cpp/tests/kalico_conformance.py --bridge build-cpp/cfs_host_bridge --extras /tmp/kalico/klippy/extras
+      - name: Static analysis (cppcheck, non-blocking until tuned)
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y --no-install-recommends cppcheck
+          cppcheck --std=c++17 --enable=warning,performance,portability --inline-suppr --error-exitcode=1 -Icpp/include -Icpp/board/k2cfs cpp/lib cpp/board/k2cfs
+      - name: Install ARM Cortex-M4 C++ compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi \
+            libstdc++-arm-none-eabi-newlib libnewlib-arm-none-eabi
+      - name: Cross compile the C++ core and board-port objects (objects only, NO ELF OR BIN)
+        run: |
+          for f in cpp/lib/*.cpp cpp/lib/tags/*.cpp cpp/board/k2cfs/*.cpp; do
+            arm-none-eabi-g++ -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 \
+              -std=c++17 -Os -fno-exceptions -fno-rtti -ffreestanding \
+              -Wall -Wextra -Werror -Wpedantic -Icpp/include -Icpp/board/k2cfs \
+              -c "$f" -o "/tmp/$(basename "$f" .cpp).o"
+          done
+          arm-none-eabi-size /tmp/*.o
+          test ! -f firmware.bin
+          test ! -f firmware.elf

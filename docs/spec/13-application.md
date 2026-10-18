@@ -1,0 +1,82 @@
+# Application loop, clock and watchdog (OpenCFS)
+
+The stock application runs RT-Thread threads and soft timers
+(`06-motors-sensors.md` §6). OpenCFS runs the same work in **one cooperative
+loop** (`cfs::App`, board glue `cfs::board::BoardApp`).
+
+## 1. Scheduling
+
+| Stock | Period | OpenCFS |
+| --- | --- | --- |
+| `rs485` thread (dispatcher, long commands inline) | blocking RX | `App::loop_once()` → `Dispatcher::poll()` |
+| `preload` thread | 1 ms step | `loop_once()` → `Preload::step()` |
+| `print_check` thread | while a refill session is open | `loop_once()` → `PrintTracker::service()` |
+| `presd` soft timer | 20 ms | duty: `Preload::sample()` |
+| buffer full/empty EXTI | edge | duty: buffer edge → `on_buffer_full/empty()` |
+| usage manager | – | duty: `UsageManager::tick()` |
+| `motor_blocked_detect_timer` | 100 ms | duty: `MotorSupervisor::tick()` |
+| `tim_rotational_speed_detect`, feeder monitors, `mt6826_timer`, `led` | 40 / 20 / 20 ms / – | `Board::tick_1ms()` |
+| `lcd` thread (environment) | 1 s | `BoardApp::loop_once()` → `Board::update_environment()` |
+
+Long routines (load, unload, pretension, RFID scan, refill) block `loop_once()`
+just as they block their stock thread. While they sleep, the board clock's idle
+hook calls `BoardApp::idle()`: it catches up `Board::tick_1ms()` and runs
+`App::background()`, which performs the duties above. So supervision,
+filtering, the hub speed loop and the buffer edges keep running during every
+long routine. Re-entry is guarded: a duty that sleeps (reverse detooth) does not
+run the duties again.
+
+**Host traffic during a long routine.** In stock, the `rs485` thread answers
+while the `preload` or `print_check` thread works. In OpenCFS, `background()`
+polls the dispatcher in a restricted mode:
+
+- answered normally: `0x01` keep-alive, `0x02`, `0x03`, `0x05`, `0x0A`, `0x0C`,
+  `0x14`, `0x15`, `0x52`, `0x55`, `0x5B`, `0x57` (its SET/RESET are refused by
+  the motion interlock), `0x60`;
+- every other command answers **BUSY (`0x03`)**, including those that would start
+  motion, reset the odometer (`0x0E`) or change the tracking mode (`0x04`).
+  Stock would run some of these concurrently; OpenCFS refuses rather than race.
+- While the dispatcher itself is blocked in a command (load stage 4 and the like),
+  `background()` does not read the link: the stage's inline reader owns it, as in
+  stock (`04-feeder.md` §4).
+
+## 2. Clock (stock application `SystemInit`, `0x08022796`) [code]
+
+- FPU enabled first: `CPACR |= 0xF00000` (`0xE000ED88`). Needed for the
+  hard-float ABI.
+- HXTAL on, wait for `HXTALSTB` (bounded loop); if it never starts the code
+  **hangs in an infinite loop**.
+- PMU clock on, LDO high-drive (`PMU_CTL |= 0xC000`), then high-drive enable and
+  switch (`HDEN`, `HDS`, waiting for both ready flags).
+- `CFG0`: AHB /1, APB2 /1, APB1 /2 (`0x400`), PLL source HXTAL with PREDV0 /2
+  (bits 16, 17), PLLMF `0x1D` (bits 21:18 = `0xD`, bit 27) = ×30.
+- **8 MHz / 2 × 30 = 120 MHz SYSCLK**, AHB 120 MHz, APB2 120 MHz, APB1 60 MHz
+  (timers on APB1 run at 120 MHz). The board port constants (`kHclkHz`,
+  `kApb1Hz`, `kTimerClkHz`) match.
+- The loader also programs RCU/FMC (literals at `0x0800152C`..`0x08001534`); the
+  application sets the clock again regardless.
+- VTOR is written by the application (literals `0x08016214`, `0x0801A94C`).
+
+## 3. Watchdog [code]
+
+Neither the application nor the 2025 loader touches the free or window watchdog:
+no FWDGT/WWDGT register literal, no `0xCCCC`/`0xAAAA`/`0x5555` key. The only
+"WDT" string is RT-Thread's device-class name table. **The stock CFS runs without
+a watchdog.** OpenCFS keeps that behavior. Adding FWDGT is a release decision
+for the image (feed it in `loop_once()` and in the idle hook, so long routines
+keep feeding it), and it must be qualified on hardware like any other change.
+
+## 4. Integration contract for an image (not in this repository)
+
+An image build has to do the following, in this order:
+
+1. set up the clock as in §2, including the FPU;
+2. point VTOR at the application base `0x08003000`;
+3. start a 1 ms SysTick;
+4. construct a `BoardApp` with address `0xFE` (unassigned; auto-addressing assigns it);
+5. call `init()`, then `loop_once()` forever.
+
+Interrupt handlers forward to `on_systick()`, `on_usart1_irq()` (USART1, IRQ 38)
+and `on_exti10_15_irq()` (EXTI 10–15, IRQ 40, hub FG on PE11). The repository
+policy keeps startup code, linker scripts and binaries out until the release
+gates pass.
