@@ -2,14 +2,28 @@
 
 **Independent, open-source firmware project for the Creality CFS controller.**
 
-> **NOT QUALIFIED ON HARDWARE. DO NOT FLASH.** [`cpp/board/k2cfs/image`](docs/spec/13-application.md)
-> links an **experimental** application image for the Creality loader (start-up,
-> clock, vector table, linker script). It boots in an emulator, but motors, sensors,
-> RFID, timing and recovery have not been tested on a physical CFS. No binary is
-> published. Never install a build artifact on a physical CFS before the hardware
-> qualification. Three variants are built: RELEASE, and two test builds,
-> INERT (no output can move) and BENCH (gated sensor and actuator tests), which
-> identify themselves through command `0x7A` and in the file at `+0x220`.
+> **EXPERIMENTAL — NOT PRODUCTION-QUALIFIED.** Some OpenCFS INERT images
+> were physically flashed during 17–18 October 2026, and the v3.22
+> patched-stock firmware successfully recovered the device each time.
+> Initial INERT images blocked the shared RS-485 bus. The confirmed root
+> cause was the bootloader reading 12 bytes beyond an initial MSP of
+> `0x20010000` before jumping into the app; the corrected initial MSP is
+> `0x2000FFE0`. Subsequent stage-1 INERT builds restored CFS and motor
+> discovery; see [hardware evidence and exact revisions](docs/spec/15-hardware-test-plan.md).
+> Hardware qualifications for feeder motion, RFID, BENCH and RELEASE remain open.
+> Do not treat passing emulator tests as authorization for production deployment.
+
+**Identity and compatibility.** OpenCFS identifies with command `0x7A`
+and magic `OCFS` (variant RELEASE/INERT/BENCH), distinct from the
+patched Creality/K2-OpenHost `K2OH` identity. OpenCFS's Runtime Config API
+`0x57` reports feature `0x2B`. The wire protocol shares the family of
+API v2, but some stock timebase parameters (especially IDs 8, 20 and 22)
+use different raw units than K2OH v3.23 CFG4. **Kalico must recognise both
+families and never apply the wrong firmware's parameter profile.**
+
+[Wiki-style documentation index](docs/WIKI_INDEX.md) ·
+[Runtime configuration](docs/spec/12-runtime-config.md) ·
+[Hardware test plan](docs/spec/15-hardware-test-plan.md)
 
 ## What exists now
 
@@ -27,7 +41,7 @@
 - CI that runs host tests and sanitizer tests, verifies ARM object compilation, links
   the experimental image and boots it in an emulator
   ([`docs/spec/14`](docs/spec/14-verification.md)). **No ELF/BIN/HEX is published
-  and nothing is flashed.**
+  and physical INERT-only bench tests are documented.**
 - **Behavioral specification** of the stock CFS application `cfs0_000_153` in
   [`docs/spec`](docs/spec/00-sources.md): RS-485 commands and statuses, load/unload
   stages, preload/RFID and the remaining-filament estimate, motors and supervision,
@@ -63,7 +77,7 @@ arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -std=c11 -Os \
 The synthetic `OCFS_EVIDENCE_*` flags cannot currently be produced from
 trusted real CFS hardware feedback. The module is **only a logic test
 harness**; setting the flags does not prove that motors are stopped.
-A runtime GPIO driver is intentionally absent.
+A preliminary GD32 board port exists, but production motion safety is unqualified.
 
 ## Architecture and research
 
@@ -75,11 +89,10 @@ Start with [RS485 decoder evidence](docs/RS485_RX_ENVELOPE.md), [architecture](d
 The target chip *candidate* is GD32F303VET6 (Cortex-M4).
 Physical silicon confirmation, bootloader boundaries, motor feedback,
 IRQs and CFS protocol interoperability are still unqualified.
-RT-Thread is a likely future RTOS dependency; it has **not** been
-imported into this project.
+The current image uses a cooperative bare-metal application; RT-Thread has not been imported.
 
 Source code created for OpenCFS uses **Apache-2.0**.
 Do not upload or copy proprietary Creality binaries or reconstructed
 proprietary source code into this repo.
 
-Development and reviews proceed via draft pull requests on feature branches.
+Core, protocol, application and source-linked image contributions have been merged into main; physical tests remain controlled and documented.
