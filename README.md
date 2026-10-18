@@ -1,13 +1,63 @@
 # OpenCFS Firmware
 
-Independent, open-source firmware research and development for the Creality CFS controller.
+**Independent, open-source firmware project for the Creality CFS controller.**
 
-> **Development-only. Nothing in this repository is currently flashable onto a CFS.** Do not attempt to replace the production MCU firmware with bootstrap artifacts.
+> **NON-FLASHABLE BOOTSTRAP.** There is no startup code, GD32 hardware driver,
+> target linker script, complete CFS/RS485 protocol, firmware image or tested
+> loader/recovery process in this repository. Never install a build artifact
+> from this stage on a physical CFS.
 
-The project will implement original, auditable C code for hardware abstraction, communication, RFID handling, motor coordination, and diagnostics. Its goal is a source-built alternative rather than a patched redistribution of Creality firmware.
+## What exists now
 
-Initial development is limited to desktop simulations, cross-compilation of isolated modules for Cortex-M4, and read-only firmware/hardware evidence. The physical MCU, bootloader ownership, complete protocol, motor stop feedback, and recovery procedure remain unqualified.
+- Portable **C11** core library with a fail-closed **motor/RFID arbitration
+  reference model** (not a physical safety system).
+- Deterministic host tests for startup rejection, fault latching, synthetic
+  idle requalification and 16-thread concurrent motor/RFID claim exclusion.
+- Cross-compilation of the **isolated core object** for ARM Cortex-M4.
+- Source-only board evidence manifest, clean-room contribution rules and
+  [staged development roadmap](docs/ROADMAP.md).
+- CI that runs host tests and verifies ARM object compilation. **No firmware
+  ELF/BIN/HEX or flash automation is generated.**
 
-Work in progress is reviewed via draft pull requests. See the bootstrap PR for the first testable core and development plan.
+## Build and test on Linux
 
-License: Apache-2.0 (project-authored source; third-party dependencies retain their own licenses).
+Requires CMake, a C11 compiler and pthreads.
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+ctest --test-dir build --output-on-failure
+python3 tests/test_board_manifest.py
+```
+
+Optional Cortex-M4 compilation (not linking):
+
+```sh
+arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -std=c11 -Os \
+  -ffreestanding -fno-builtin -Wall -Wextra -Werror -Wpedantic \
+  -Iinclude -c src/safety_gate.c -o /tmp/opencfs-safety-gate.o
+```
+
+The synthetic `OCFS_EVIDENCE_*` flags cannot currently be produced from
+trusted real CFS hardware feedback. The module is **only a logic test
+harness**; setting the flags does not prove that motors are stopped.
+A runtime GPIO driver is intentionally absent.
+
+## Architecture and research
+
+Start with [architecture](docs/ARCHITECTURE.md), [roadmap](docs/ROADMAP.md),
+[hardware evidence manifest](boards/k2-cfs-gd32f303ve/board-manifest.json),
+[reference research](docs/REFERENCES.md) and
+[contributing rules](docs/CONTRIBUTING.md).
+
+The target chip *candidate* is GD32F303VET6 (Cortex-M4).
+Physical silicon confirmation, bootloader boundaries, motor feedback,
+IRQs and CFS protocol interoperability are still unqualified.
+RT-Thread is a likely future RTOS dependency; it has **not** been
+imported into this project.
+
+Source code created for OpenCFS uses **Apache-2.0**.
+Do not upload or copy proprietary Creality binaries or reconstructed
+proprietary source code into this repo.
+
+Development and reviews proceed via draft pull requests on feature branches.
