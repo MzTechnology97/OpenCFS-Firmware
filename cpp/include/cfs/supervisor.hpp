@@ -23,6 +23,9 @@ public:
 
     // Call every kPeriodMs (stock: RT soft timer). May block for a detooth (~300 ms).
     void tick();
+    // false: never start a corrective move (detooth), only stop. Motion-locked
+    // builds use it so that supervision can never move a motor.
+    void set_corrective(bool on) { corrective_ = on; }
 
     // Bit 4 = hub, bits 0..3 = feeders, as captured when supervision stopped everything.
     uint8_t stopped_mask() const { return stopped_mask_; }
@@ -39,6 +42,7 @@ private:
     const Config& cfg_;  // supervision.reverse_detooth / detooth_after_ms
     uint32_t blocked_ms_ = 0;
     bool detoothing_ = false;
+    bool corrective_ = true;
     uint32_t reenable_at_ = 0;
     uint8_t stopped_mask_ = 0;
     bool overload_ = false;

@@ -52,13 +52,19 @@ void App::duties() {
     in_duties_ = false;
 }
 
+void App::set_motion_locked(bool locked) {
+    motion_locked_ = locked;
+    disp.set_motion_locked(locked);
+    supervisor.set_corrective(!locked);
+}
+
 void App::loop_once() {
     duties();
     in_dispatch_ = true;  // long commands (load, unload) run inline, like stock
     disp.poll();
     in_dispatch_ = false;
     duties();
-    preload.step();   // pretension and RFID scan block here, like the stock thread
+    if (!motion_locked_) preload.step();  // pretension and RFID scan block here, like stock
     print.service();  // buffer refill session while printing
 }
 

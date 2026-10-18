@@ -63,7 +63,7 @@ keys 200..399 to a second table that this build does not define (`0x08011E48`).
 | UART | **USART1** (`uart1`), IRQ 38, TX **PA2**, RX **PA3** [code] |
 | Format | **230400 8N1** (driver config `0x38400`, `0x100008`) [code] |
 | Transceiver | 3PEAK TPT75176H [fn] |
-| DE/RE | No firmware-driven GPIO [code]. The transmitter is wired permanently enabled and the bus works in a pseudo open-collector way, with the idle state set by the 300 Ω pull-up/pull-down termination [fn]. This limits the usable baud rate |
+| DE/RE | No firmware-driven GPIO [code]. The transmitter is wired permanently enabled and the bus works in a pseudo open-collector way, with the idle state set by the 300 Ω pull-up/pull-down termination [fn]. This limits the usable baud rate. Consequence for any firmware: PA2 must be high whenever the box is not sending, including before the UART is set up and after a fault, or the box holds the bus for every device on it (`13-application.md` §4) |
 
 ## 3. Motors
 
@@ -108,7 +108,7 @@ brake), not from the reported state. Object-only CI cannot qualify this.
 | --- | --- | --- |
 | PWM | PE13 (`pwm1`) | TIMER0 CH2, TIMER0 full remap (AFIO_PCF0 bits 7:6 = `11`), 20 kHz, active low [code] |
 | DIR | PE3 (`0x43`) | high = forward [code] |
-| BRAKE | PE4 (`0x44`) | high = brake [code] |
+| BRAKE | PE4 (`0x44`) | open-drain output (`rt_pin_mode(PE4, OUTPUT_OD)` at `0x08010FE6`): released high = brake, driven low = run [code] |
 | FG | PE11 (`0x4B`) | edge interrupt; pulse counter at `0x20004990`; 6 pulses per revolution [code][res] |
 | Fault | – | none: blocked and overload are computed from FG and the PID output [code] |
 

@@ -1273,6 +1273,86 @@ void test_vendor_formats() {
     }
 }
 
+// ---- build variants (docs/13 section 5) ----
+// INERT/BENCH: no automatic routine and no motion command may reach a motor.
+void test_motion_locked() {
+    AppRig r;
+    r.app.set_motion_locked(true);
+    r.w.motor_commands = 0;
+    r.w.insert(0);
+    r.run(600);  // an insertion would start pretension and a scan in a release build
+    CHECK(r.w.motor_commands == 0 && r.app.box.state() == BoxState::Idle);
+    const uint8_t locked = to_u8(Status::MotionLocked);
+    CHECK(status_of(r.request(0x10, {0x01, 0, 0})) == locked);  // load
+    CHECK(status_of(r.request(0x11, {0x01, 0})) == locked);     // unload
+    CHECK(status_of(r.request(0x06, {0x01, 1})) == locked);     // manual feeder
+    CHECK(status_of(r.request(0x07, {0x01})) == locked);        // manual hub
+    CHECK(status_of(r.request(0x13, {0x01})) == locked);        // feed to hub
+    CHECK(status_of(r.request(0x04, {0x01, 0})) == locked);     // print tracking
+    CHECK(status_of(r.request(0x0D, {0x01, 2})) == locked);     // forced read with motion
+    CHECK(status_of(r.request(0x0D, {0x00, 0})) == 0);          // read-on-insert off: no motion
+    CHECK(status_of(r.request(0x01, {})) == 0);
+    const auto state = r.request(0x0A, {});  // status carries the slot event
+    CHECK(state.size() > 4 && state[4] == 0x0A);
+    CHECK(status_of(r.request(0x14, {})) == 0);
+    // Supervision still stops, but never moves (no detooth).
+    r.w.hub_blocked = true;
+    r.run(1500);
+    CHECK(r.app.supervisor.detooth_count() == 0);
+    CHECK(r.w.motor_commands == 0);
+}
+
+void test_build_info() {
+    AppRig r;
+    CHECK(status_of(r.request(0x7A, {})) == 0x01);  // no identity set
+    CHECK(Dispatcher::background_safe(0x7A) && !Dispatcher::background_safe(0x7B));
+    CHECK(Dispatcher::background_safe(0x08));  // sensor mask: a read, never Busy
+    BuildInfo b;
+    b.variant = BuildInfo::Bench;
+    b.flags = BuildInfo::MotionLocked | BuildInfo::SettingsReadOnly;
+    std::memcpy(b.revision, "abc123def", 9);
+    std::memcpy(b.app_id, "cfs0_000_153", 12);
+    volatile uint8_t level = BuildInfo::SensorsOnly;
+    b.bench_level = &level;
+    r.app.disp.set_build_info(&b);
+    auto f = r.request(0x7A, {});
+    CHECK(f.size() == 6 + kBuildInfoLen && status_of(f) == 0 && f[4] == 0x7A);
+    if (f.size() == 6 + kBuildInfoLen) {
+        const uint8_t* p = f.data() + 5;
+        CHECK(std::memcmp(p, "OCFS", 4) == 0 && p[4] == 1 && p[5] == BuildInfo::Bench);
+        CHECK(p[6] == BuildInfo::SensorsOnly && p[7] == (BuildInfo::MotionLocked | BuildInfo::SettingsReadOnly));
+        CHECK(std::memcmp(p + 8, "abc123def\0\0\0", 12) == 0 && std::memcmp(p + 20, "cfs0_000_153", 12) == 0);
+    }
+    level = BuildInfo::ActuatorTest;
+    f = r.request(0x7A, {});
+    CHECK(f.size() > 11 && f[11] == BuildInfo::ActuatorTest);
+}
+
+
+// The CFS transceiver is always enabled (docs/10 section 2): when the box hears
+// its own replies, each request must still give exactly one reply. On the
+// reference printer an image without this filter held the bus for every device.
+void test_echo_never_answered() {
+    AppRig r;
+    r.w.echo = true;
+    auto count_after = [&](uint8_t addr, uint8_t header, uint8_t cmd, std::vector<uint8_t> payload) {
+        r.w.tx.clear();
+        r.w.inject(r.w.now_ms(), frame(addr, cmd, payload, header));
+        r.run(200);
+        return r.w.sent_frames().size();
+    };
+    CHECK(count_after(1, kHeaderBoxRequest, 0x14, {}) == 1);
+    CHECK(count_after(1, kHeaderBoxRequest, 0x0A, {}) == 1);
+    CHECK(count_after(kAddrBoxBroadcast, kHeaderBoxRequest, 0x01, {}) == 1);
+    CHECK(count_after(1, 0x00, 0xA2, {}) == 1);
+    // A reply-shaped frame (status in the header) to the own address: ignored.
+    CHECK(count_after(1, 0x00, 0x14, {}) == 0);
+    // An auto-address reply (14 bytes) to the own address: ignored.
+    std::vector<uint8_t> reply(14, 0);
+    reply[0] = 1;
+    CHECK(count_after(1, 0x00, 0xA2, reply) == 0);
+}
+
 int main() {
     const Test tests[] = {
         {"crc_vectors", test_crc_vectors},
@@ -1307,6 +1387,9 @@ int main() {
         {"factory_modes_refused", test_factory_modes_refused},
         {"type4_ndef", test_type4_ndef},
         {"vendor_formats", test_vendor_formats},
+        {"motion_locked", test_motion_locked},
+        {"build_info", test_build_info},
+        {"echo_never_answered", test_echo_never_answered},
         {"fuzz", test_fuzz},
     };
     for (const Test& t : tests) {

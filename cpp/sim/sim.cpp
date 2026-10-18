@@ -26,7 +26,10 @@ void World::sleep_ms(uint32_t ms) {
 void World::run(int slot, Dir dir, uint8_t speed) {
     feeder_speed_[slot] = speed;
     feeder_dir_[slot] = dir;
-    if (speed) motion_since_idle_check_ = true;
+    if (speed) {
+        motion_since_idle_check_ = true;
+        ++motor_commands;
+    }
 }
 
 int World::engaged_slot() const {

@@ -2,10 +2,14 @@
 
 **Independent, open-source firmware project for the Creality CFS controller.**
 
-> **NON-FLASHABLE BOOTSTRAP.** There is no startup code, GD32 hardware driver,
-> target linker script, complete CFS/RS485 protocol, firmware image or tested
-> loader/recovery process in this repository. Never install a build artifact
-> from this stage on a physical CFS.
+> **NOT QUALIFIED ON HARDWARE. DO NOT FLASH.** [`cpp/board/k2cfs/image`](docs/spec/13-application.md)
+> links an **experimental** application image for the Creality loader (start-up,
+> clock, vector table, linker script). It boots in an emulator, but motors, sensors,
+> RFID, timing and recovery have not been tested on a physical CFS. No binary is
+> published. Never install a build artifact on a physical CFS before the hardware
+> qualification. Three variants are built: RELEASE, and two test builds,
+> INERT (no output can move) and BENCH (gated sensor and actuator tests), which
+> identify themselves through command `0x7A` and in the file at `+0x220`.
 
 ## What exists now
 
@@ -20,15 +24,17 @@
 - Cross-compilation of the **isolated core object** for ARM Cortex-M4.
 - Source-only board evidence manifest, clean-room contribution rules and
   [staged development roadmap](docs/ROADMAP.md).
-- CI that runs host tests, sanitizer tests and verifies ARM object compilation. **No firmware
-  ELF/BIN/HEX or flash automation is generated.**
+- CI that runs host tests and sanitizer tests, verifies ARM object compilation, links
+  the experimental image and boots it in an emulator
+  ([`docs/spec/14`](docs/spec/14-verification.md)). **No ELF/BIN/HEX is published
+  and nothing is flashed.**
 - **Behavioral specification** of the stock CFS application `cfs0_000_153` in
   [`docs/spec`](docs/spec/00-sources.md): RS-485 commands and statuses, load/unload
   stages, preload/RFID and the remaining-filament estimate, motors and supervision,
   memory map, loader image header, loader update protocol and the GD32 peripheral/pin map for a board port.
 - A **C++17 reference implementation** of that specification in [`cpp/`](cpp/README.md),
-  with a filament-path simulator and host tests. It is heap-free, and like the C11
-  core it does not drive hardware.
+  with a filament-path simulator and host tests. It is heap-free. The core does not
+  touch hardware; the GD32F303 board port and the image in `cpp/board/k2cfs` do.
 - Offline **analysis tools** in [`tools/re`](tools/re/README.md); none of them
   redistribute manufacturer bytes.
 

@@ -6,6 +6,7 @@
 
 #include "cfs/auto_address.hpp"
 #include "cfs/box.hpp"
+#include "cfs/build_info.hpp"
 #include "cfs/config.hpp"
 #include "cfs/feeder.hpp"
 #include "cfs/frame.hpp"
@@ -42,6 +43,27 @@ public:
     // Enables usage accounting hooks (print start/end, retract).
     void set_usage(UsageManager* u) { usage_ = u; }
 
+    // ---- build variants (docs/13 §5) ----
+    // Motion-locked: every command that can start a motor answers MotionLocked
+    // (0x07) instead of running. Used by the INERT and BENCH builds.
+    void set_motion_locked(bool locked) { motion_locked_ = locked; }
+    bool motion_locked() const { return motion_locked_; }
+    static bool starts_motion(const Frame& f);
+    // Build-specific commands (BENCH), tried before the stock table, in the
+    // foreground loop only and only for frames to the own address.
+    class Extension {
+    public:
+        virtual ~Extension() = default;
+        virtual bool handle(const Frame& f) = 0;  // true: consumed (and answered)
+    };
+    void set_extension(Extension* e) { extension_ = e; }
+    // Answers the frame being handled; for extensions.
+    void reply_current(uint8_t cmd, Status st, const uint8_t* data = nullptr, size_t len = 0) {
+        reply(cmd, st, data, len);
+    }
+    // Identity reported by 0x7A; without it 0x7A answers InvalidParam.
+    void set_build_info(const BuildInfo* b) { build_ = b; }
+
 private:
     class LoadLink;
 
@@ -65,6 +87,9 @@ private:
     RfidScanner* scanner_ = nullptr;
     Preload* preload_ = nullptr;
     UsageManager* usage_ = nullptr;
+    Extension* extension_ = nullptr;
+    const BuildInfo* build_ = nullptr;
+    bool motion_locked_ = false;
     AutoAddress auto_;
     Receiver rx_;
     uint8_t address_;

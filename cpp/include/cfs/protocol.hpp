@@ -49,6 +49,8 @@ enum class Cmd : uint8_t {
     FactoryTest = 0x5D,
     RuntimeConfig = 0x57,  // K2-OpenHost Runtime Config API v2 sub-commands (docs/12)
     TagInfo = 0x60,  // OpenCFS extension: last tag readout of a slot (docs/11)
+    BuildInfo = 0x7A,  // OpenCFS extension: build variant and revision (docs/13 §5)
+    Bench = 0x7B,      // OpenCFS BENCH builds only: sensor and actuator tests (docs/13 §5)
 };
 
 enum class Status : uint8_t {
@@ -56,6 +58,7 @@ enum class Status : uint8_t {
     InvalidParam = 0x01,
     BadCrc = 0x02,
     Busy = 0x03,
+    MotionLocked = 0x07,  // OpenCFS: refused, motion is disabled in this build or level
     Stage0SensorTimeout = 0x05,
     BufferFillTimeout = 0x06,
     SlotEmpty = 0x08,

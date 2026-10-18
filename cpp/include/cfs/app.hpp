@@ -41,6 +41,10 @@ public:
     void init();       // after the board is up: filters, read-on-insert
     void loop_once();  // one main-loop pass; may block inside a long routine
     void background(); // from the clock idle hook while a routine sleeps
+    // INERT/BENCH builds (docs/13 §5): no automatic routine (preload, pretension,
+    // scan, detooth) and every motion command refused. Set before init().
+    void set_motion_locked(bool locked);
+    bool motion_locked() const { return motion_locked_; }
 
     Config cfg;
     Box box;
@@ -58,6 +62,7 @@ private:
     Hardware& hw_;
     bool in_dispatch_ = false;  // the dispatcher itself is blocked in a command
     bool in_duties_ = false;    // a duty (detooth) is sleeping
+    bool motion_locked_ = false;
     uint32_t next_sample_ = 0;
     uint32_t next_supervise_ = 0;
     BufferState last_buffer_ = BufferState::Between;
